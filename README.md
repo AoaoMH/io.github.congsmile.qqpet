@@ -42,7 +42,7 @@
  - 官方最新或主流版本手机 QQ（`com.tencent.mobileqq`）
  
  ### 2. 安装与激活
- 1. 下载并在手机上安装最新的 `QQPet-Copilot.apk`。
+ 1. 前往 [Releases 发布页面](https://github.com/congsmile/qqpet-copilot-lsposed/releases) 下载并安装最新的 `QQPetCopilot-v1.0.24.apk`。
  2. 打开 **LSPosed Manager**：
     - 在模块列表中找到 **QQPet Copilot**。
     - 开启模块，推荐作用域已默认勾选 **QQ (`com.tencent.mobileqq`)**。
