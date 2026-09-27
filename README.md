@@ -1,0 +1,103 @@
+ # QQPet Copilot (LSPosed) 🐧
+ 
+ > 基于 Android 手机 QQ 原生 SSO/OIDB 协议通道实现的 **QQ 宠物全能自动化后台伴侣 LSPosed 模块**。  
+ > 无需单独打开外挂 App，深度内嵌手机 QQ 设置页面，实现打工、学习、冒险、喂食、清洁全链路无感自动轮转。
+ 
+ ---
+ 
+ ## ✨ 核心特性
+ 
+ 1. **原生协议级桥接（免提取 Skey / 免维护 Token）**
+    - 通过 Xposed 动态 Hook 手机 QQ 原生 `PetPbDelegate`（SSO / OIDB 服务通道），直接复用 QQ 宿主既有长连接与安全会话。
+    - 告别第三方抓包工具、免除频繁失效的 Cookie 与登录态维护，与 QQ 官方交互行为一致，最大限度降低风控风险。
+ 
+ 2. **无感内嵌 QQ 原生设置（体验对齐“模了个块” / XA 模块）**
+    - 模块项直接注入手机 QQ「设置」页面主菜单项。
+    - 点击即可在 QQ 内部呼出精致优雅的圆角卡片控制面板，开关自如、即调即用，手机后台无需常驻第三方独立 UI。
+ 
+ 3. **官方两阶段动态协议链（突破初阶课程硬编码瓶颈）**
+    - **阶段查询**：CMD `39776` (`0x9b60_1`) 实时获取宠物学园阶段（初级 / 中级 / 高级）。
+    - **动态拉课/选岗**：CMD `39602` (`0x9ab2_1`) 动态向官方服务器拉取当前阶段真实可选事件列表（解析 `SelectEventItem`，包括 `eventName`、`canDo`、`subEventType` 等），完美支持中级学园课程（`6125001` ~ `6125007`）与进阶职业岗位。
+    - **自动启程**：CMD `38750` (`0x975e_1`) 传入校验合法的课程/事件 ID 启程学习或打工，彻底根除服务器 `135010 (课程配置为空)` 报错。
+ 
+ 4. **全自动化智能生命周期调度**
+    - **互斥动作调度**：外出上学、打工赚钱、野外冒险三者互斥，内置智能优先级队列与冲突防呆。
+    - **倒计时轮转机制**：根据服务端下发的倒计时秒数精确挂起协程并唤醒下一轮调度。
+    - **生命体征监控**：自动检测饱腹度与清洁度，智能触发喂食与洗澡保养指令。
+ 
+ ---
+ 
+ ## 📱 界面与交互设计
+ 
+ - **QQ 沉浸式弹窗**：在 QQ 设置中提供一键总开关、冒险/学习/打工模式选择、一键快捷维护及运行日志监控。
+ - **状态角标回显**：运行状态与倒计时实时反馈，QQ 聊天列表状态及宠物面板同步展示「📖 学习中」、「💼 打工中」等状态。
+ 
+ ---
+ 
+ ## 🛠️ 快速上手与使用
+ 
+ ### 1. 环境准备
+ - 已 Root 设备（Magisk / KernelSU / APatch）
+ - 已安装并启用 [LSPosed](https://github.com/mywalkb/LSPosed_mod) 框架环境（Zygisk 版）
+ - 官方最新或主流版本手机 QQ（`com.tencent.mobileqq`）
+ 
+ ### 2. 安装与激活
+ 1. 下载并在手机上安装最新的 `QQPet-Copilot.apk`。
+ 2. 打开 **LSPosed Manager**：
+    - 在模块列表中找到 **QQPet Copilot**。
+    - 开启模块，推荐作用域已默认勾选 **QQ (`com.tencent.mobileqq`)**。
+ 3. 强行停止或重启手机 QQ 使 Hook 规则生效。
+ 
+ ### 3. 打开使用
+ 1. 打开手机 QQ，点击左上角头像 -> 底部「设置」。
+ 2. 在设置列表中点击 **「🐧 QQ 宠物自动化助手」**。
+ 3. 开启总开关并选择需要的模式（学习 / 打工 / 冒险），模块即刻在后台开始全自动接管。
+ 
+ ---
+ 
+ ## 🏗️ 项目编译与构建
+ 
+ 本项目基于现代 Android Gradle 构建系统开发：
+ 
+ ```bash
+ # 克隆本仓库
+ git clone https://github.com/congsmile/qqpet-copilot-lsposed.git
+ cd qqpet-copilot-lsposed
+ 
+ # 使用 Gradle 编译 Debug APK
+ ./gradlew assembleDebug
+ 
+ # 产物路径
+ # app/build/outputs/apk/debug/app-debug.apk
+ ```
+ 
+ ### 技术栈与依赖
+ - **开发语言**：Kotlin + Coroutines
+ - **Hook 引擎**：Xposed API 82 (`compileOnly("de.robv.android.xposed:api:82")`)
+ - **UI 规范**：Material 3 Components, ViewBinding
+ - **架构分层**：
+   - `HookEntry.kt`：Xposed 模块入口与宿主进程注入验证。
+   - `hook/QQSettingInjector.kt`：QQ 设置页面动态反射注入与控件绑定。
+   - `protocol/QQPetDirectBridge.kt`：QQ SSO / OIDB 发包通道代理与响应拦截。
+   - `engine/PetAdventureEngine.kt`：养成协议状态机、动态拉课与事件调度内核。
+ 
+ ---
+ 
+ ## 📜 版本递增规则说明
+ 
+ - 每次代码或功能更新，版本号末位自动递增 `0.0.1`（当前版本：`1.0.24`）。
+ - 对应的 `versionCode` 整数顺延递增。
+ 
+ ---
+ 
+ ## ⚠️ 免责声明
+ 
+ 1. 本项目仅供 Android 逆向工程、Xposed 框架 Hook 机制及网络通信协议学习交流使用，严禁用于任何商业用途或非法牟利。
+ 2. 本项目不收集、不上传任何用户的个人数据、账号凭证或通信隐私。
+ 3. 使用本工具产生的任何因平台政策调整引起的账号变动，均由使用者自行承担。
+ 
+ ---
+ 
+ ## 📄 License
+ 
+ 本项目采用 [MIT License](LICENSE) 开源。
