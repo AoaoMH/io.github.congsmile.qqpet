@@ -9,11 +9,11 @@ android {
 
     defaultConfig {
         applicationId = "com.copilot.qqpet"
-       minSdk = 26
-       targetSdk = 34
-       versionCode = 25
-       // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> 1.0.3 -> 1.0.4 -> 1.0.5 -> 1.0.6 -> 1.0.7)
-        versionName = "1.0.24"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 28
+        // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.27)
+        versionName = "1.0.27"
     }
 
     buildTypes {

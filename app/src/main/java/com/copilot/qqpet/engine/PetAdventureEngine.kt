@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.copilot.qqpet.protocol.QQPetDirectBridge
+import com.copilot.qqpet.ui.PreferencesHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -56,6 +57,11 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         // 学习与打工自选模式：0=均衡轮转, 1=专攻智力/文职, 2=专攻力量/体力, 3=专攻魅力/演艺
         @Volatile var prefStudyMode = 0
         @Volatile var prefWorkMode = 0
+        @Volatile var prefCustomSchoolStage = 0 // 0: 自适应当前最高, 1: 初级, 2: 中级, 3: 高级, 4: 进修
+        @Volatile var prefCustomCourseSubject = 0 // 0: 智能轮换, 1: 智力, 2: 力量, 3: 魅力
+        @Volatile var prefCustomCourseDuration = 0 // 0: 任意时长, 1: 基础短课(10-45m), 2: 进阶长课(1-2.25h)
+        @Volatile var prefCustomWorkType = 0 // 0: 演艺文化(最高收益), 1: 文职商业, 2: 体力搬运, 3: 三业轮换
+        @Volatile var prefCustomWorkDuration = 0 // 0: 智能时长, 1: 10分钟(极速), 2: 45分钟(短工), 3: 2小时(中工), 4: 4小时(长工)
 
         @Volatile var lastCareTimeMillis: Long = 0L
 
@@ -64,6 +70,11 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         @Volatile var learnedStudyName: String? = null
         @Volatile var learnedWorkSubEvent: Long? = null
         @Volatile var learnedWorkName: String? = null
+
+        // 当前账号已解锁数据缓存（用于 UI 实时置灰/解锁判断）
+        @Volatile var cachedSchoolDetails: QQPetDirectBridge.SecondMapDetails? = null
+        @Volatile var cachedWorkJobs: List<QQPetDirectBridge.SelectEvent>? = null
+        @Volatile var cachedSchoolCourses: List<QQPetDirectBridge.SelectEvent>? = null
 
         fun getLiveRemainingSeconds(): Long {
             if (currentTaskEndTimeMillis <= 0L) return 0L
@@ -188,6 +199,11 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
             enableSettle = prefs.getBoolean("key_settle", true)
             prefStudyMode = prefs.getInt("key_study_mode", 0)
             prefWorkMode = prefs.getInt("key_work_mode", 0)
+            prefCustomSchoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
+            prefCustomCourseSubject = prefs.getInt(PreferencesHelper.KEY_COURSE_SUBJECT, 0)
+            prefCustomCourseDuration = prefs.getInt(PreferencesHelper.KEY_COURSE_DURATION, 0)
+            prefCustomWorkType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
+            prefCustomWorkDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
 
             val savedPetId = prefs.getString("key_cached_pet_id", null)
             if (!savedPetId.isNullOrEmpty()) {
@@ -233,7 +249,12 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         adventure: Boolean,
         settle: Boolean,
         studyMode: Int = prefStudyMode,
-        workMode: Int = prefWorkMode
+        workMode: Int = prefWorkMode,
+        schoolStage: Int = prefCustomSchoolStage,
+        courseSubject: Int = prefCustomCourseSubject,
+        courseDuration: Int = prefCustomCourseDuration,
+        workType: Int = prefCustomWorkType,
+        workDuration: Int = prefCustomWorkDuration
     ) {
         enableStudy = study
         enableWork = work
@@ -242,7 +263,12 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         enableSettle = settle
         prefStudyMode = studyMode
         prefWorkMode = workMode
-        Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学习模式=$studyMode, 打工模式=$workMode")
+        prefCustomSchoolStage = schoolStage
+        prefCustomCourseSubject = courseSubject
+        prefCustomCourseDuration = courseDuration
+        prefCustomWorkType = workType
+        prefCustomWorkDuration = workDuration
+        Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration")
     }
 
     fun sendReadySignal(context: Context) {
@@ -465,30 +491,48 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
 
         // 先查询当前处于第几阶段学园 (1初级, 2中级, 3高级, 4进修)
         val (_, mapStage, _) = querySecondMapInfoAwait(6100L, petId)
-        val targetStage = if (mapStage > 0) mapStage else 2 // 兜底中级学园
-        sendLog(context, "📚 [学园阶段] 锁定当前学园阶段: stage=$targetStage")
+        val targetStage = when {
+            prefCustomSchoolStage > 0 -> prefCustomSchoolStage
+            mapStage > 0 -> mapStage
+            else -> 2 // 兜底中级学园
+        }
+        val stageName = when (targetStage) {
+            1 -> "初级学园"
+            2 -> "中级学园"
+            3 -> "高级学园"
+            4 -> "进修学园"
+            else -> "第${targetStage}阶段学园"
+        }
+        sendLog(context, "📚 [学园阶段] 锁定目标学园: $stageName (stage=$targetStage, 自定义=${prefCustomSchoolStage > 0})")
 
         val (evtCode, dynamicEvents) = querySelectEventsAwait(6100L, petId, schoolStage = targetStage, careerType = 0)
         if (evtCode == 0 && dynamicEvents.isNotEmpty()) {
-            sendLog(context, "📚 [课程拉取] 服务端返回 ${dynamicEvents.size} 门课程: " + dynamicEvents.joinToString { "${it.eventName}(sub=${it.subEventType},canDo=${it.canDo})" })
+            sendLog(context, "📚 [课程拉取] 服务端返回 ${dynamicEvents.size} 门课程: " + dynamicEvents.joinToString { "${it.eventName}(${it.costTime},${it.reward.take(6)},can=${it.canDo})" })
             
             // 优先筛选满足条件 (canDo == true) 的课程
             val availableCourses = dynamicEvents.filter { it.canDo }.ifEmpty { dynamicEvents }
             
-            // 根据自选模式选择目标课程
-            val targetCourse = when (prefStudyMode) {
-                1 -> availableCourses.find { it.eventName.contains("智力") || it.eventName.contains("文") || it.eventName.contains("星空") } ?: availableCourses.first()
-                2 -> availableCourses.find { it.eventName.contains("力量") || it.eventName.contains("体") || it.eventName.contains("料理") } ?: availableCourses.getOrNull(1) ?: availableCourses.first()
-                3 -> availableCourses.find { it.eventName.contains("魅力") || it.eventName.contains("艺") || it.eventName.contains("夏令营") } ?: availableCourses.getOrNull(2) ?: availableCourses.first()
+            // 1. 根据时长偏好筛选：1=基础短课(10-45m), 2=进阶长课(1-2.25h)
+            val durationFiltered = when (prefCustomCourseDuration) {
+                1 -> availableCourses.filter { it.costTime.contains("分") && !it.costTime.contains("90") && !it.costTime.contains("135") }
+                2 -> availableCourses.filter { it.costTime.contains("小时") || it.costTime.contains("90") || it.costTime.contains("135") }
+                else -> availableCourses
+            }.ifEmpty { availableCourses }
+
+            // 2. 根据官方 reward 字段精准挑选目标科目课程
+            val targetCourse = when (prefCustomCourseSubject) {
+                1 -> durationFiltered.find { it.reward.contains("智力") } ?: durationFiltered.first()
+                2 -> durationFiltered.find { it.reward.contains("力量") } ?: durationFiltered.first()
+                3 -> durationFiltered.find { it.reward.contains("魅力") } ?: durationFiltered.first()
                 else -> {
-                    val idx = (studyAttributeCursor % availableCourses.size)
-                    studyAttributeCursor = (studyAttributeCursor + 1) % availableCourses.size
-                    availableCourses[idx]
+                    val idx = (studyAttributeCursor % durationFiltered.size)
+                    studyAttributeCursor = (studyAttributeCursor + 1) % durationFiltered.size
+                    durationFiltered[idx]
                 }
             }
 
             currentStatusText = "报名课程: ${targetCourse.eventName}"
-            sendLog(context, "📚 [学园报名] ($modeDesc) 锁定课程: ${targetCourse.eventName} (subEventType=${targetCourse.subEventType}, canDo=${targetCourse.canDo})，发起启程...")
+            sendLog(context, "📚 [学园报名] ($modeDesc) 锁定课程: ${targetCourse.eventName} (时长:${targetCourse.costTime}, 奖励:${targetCourse.reward.take(8)}, canDo=${targetCourse.canDo})，发起启程...")
             val (codeSchool, storyId, errorMsg) = startSchoolAwait(petId, targetCourse.eventName, 6100L, targetCourse.subEventType)
             if (codeSchool == 0 && !storyId.isNullOrEmpty()) {
                 lastActiveStoryId = storyId
@@ -574,10 +618,15 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         currentStatusText = "动态求职中: $modeDesc"
         sendLog(context, "💼 [动态求职] ($modeDesc) 正在向服务端拉取打工小镇岗位列表...")
 
-        val targetCareerType = when (prefWorkMode) {
-            1 -> 1 // 文职
-            2 -> 2 // 体力
-            3 -> 3 // 演艺
+        val targetCareerType = when (prefCustomWorkType) {
+            0 -> 3 // 演艺文化 (官方实测收益最高: 10m/77, 45m/312, 2h/509, 4h/564)
+            1 -> 1 // 文职商业 (10m/71, 45m/288, 2h/469, 4h/520)
+            2 -> 2 // 体力搬运 (10m/65, 45m/263, 2h/429, 4h/476)
+            3 -> {
+                val c = (workJobCursor % 3) + 1
+                workJobCursor = (workJobCursor + 1) % 3
+                c
+            }
             else -> {
                 val c = (workJobCursor % 3) + 1
                 workJobCursor = (workJobCursor + 1) % 3
@@ -587,12 +636,19 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
 
         val (evtCode, dynamicJobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareerType)
         if (evtCode == 0 && dynamicJobs.isNotEmpty()) {
-            sendLog(context, "💼 [岗位拉取] 服务端返回 ${dynamicJobs.size} 个工种: " + dynamicJobs.joinToString { "${it.eventName}(sub=${it.subEventType},canDo=${it.canDo})" })
+            sendLog(context, "💼 [岗位拉取] 服务端返回 ${dynamicJobs.size} 个工种: " + dynamicJobs.joinToString { "${it.eventName}(${it.costTime},can=${it.canDo})" })
             val availableJobs = dynamicJobs.filter { it.canDo }.ifEmpty { dynamicJobs }
-            val targetJob = availableJobs.first()
+            // 根据工时偏好精准挑选 (官方阶梯: 10分钟 / 45分钟 / 2小时 / 4小时)
+            val targetJob = when (prefCustomWorkDuration) {
+                1 -> availableJobs.find { it.costTime.contains("10") } ?: availableJobs.first()
+                2 -> availableJobs.find { it.costTime.contains("45") } ?: availableJobs.first()
+                3 -> availableJobs.find { it.costTime.contains("2小时") } ?: availableJobs.first()
+                4 -> availableJobs.find { it.costTime.contains("4小时") } ?: availableJobs.first()
+                else -> availableJobs.last() // 默认最长工时高效挂机
+            }
 
             currentStatusText = "小镇上岗: ${targetJob.eventName}"
-            sendLog(context, "💼 [小镇上岗] ($modeDesc) 锁定岗位: ${targetJob.eventName} (subEventType=${targetJob.subEventType}, canDo=${targetJob.canDo})，发起启程...")
+            sendLog(context, "💼 [小镇上岗] ($modeDesc) 锁定岗位: ${targetJob.eventName} (工时:${targetJob.costTime}, subEventType=${targetJob.subEventType}, canDo=${targetJob.canDo})，发起启程...")
             val (codeWork, storyId, errorMsg) = startWorkAwait(petId, targetJob.eventName, 6400L, targetJob.subEventType)
             if (codeWork == 0 && !storyId.isNullOrEmpty()) {
                 lastActiveStoryId = storyId
@@ -736,6 +792,48 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
                         }
                     }
                 }
+                "recall" -> {
+                    val petId = ensurePetId(context) ?: return@launch
+                    sendLog(context, "🚨 [召回指令] 正在查询宠物当前执行中的任务...")
+                    val status = queryStoryStatusAwait(petId)
+                    val activeSid = status.storyId ?: lastActiveStoryId
+                    if (activeSid.isNullOrEmpty()) {
+                        sendLog(context, "ℹ️ [召回指令] 宠物当前处于空闲状态，无需召回")
+                    } else {
+                        sendLog(context, "🚨 [召回指令] 正在向官方发送提前召回指令 (StoryID: $activeSid)...")
+                        val (code, errMsg) = recallStoryAwait(activeSid, petId)
+                        if (code == 0) {
+                            lastActiveStoryId = null
+                            currentTaskEndTimeMillis = 0L
+                            currentTaskTypeName = "已召回回家 (空闲)"
+                            currentStatusText = "已安全召回回家 · 待命"
+                            sendLog(context, "✅ [召回成功] 宠物已提前回家！当前状态已重置为空闲")
+                        } else {
+                            sendLog(context, "⚠️ [召回失败] 服务端返回 code=$code, 说明: ${errMsg ?: "未知"}")
+                        }
+                    }
+                }
+                "inspect" -> {
+                    val petId = ensurePetId(context) ?: return@launch
+                    sendLog(context, "🔍 [全量数据探测] 开始深度抓取官方全学园与全工种配置...")
+                    for (stg in 1..4) {
+                        val stgName = when (stg) { 1 -> "初级学园"; 2 -> "中级学园"; 3 -> "高级学园"; 4 -> "进修学园"; else -> "$stg" }
+                        val (code, events) = querySelectEventsAwait(6100L, petId, schoolStage = stg, careerType = 0)
+                        sendLog(context, "📚 [$stgName] code=$code, 课程数=${events.size}:")
+                        for (e in events) {
+                            sendLog(context, "   📖 ${e.eventName} | sub=${e.subEventType} | 耗时='${e.costTime}' | 消耗='${e.cost}' | 奖励='${e.reward}' | canDo=${e.canDo} | level=${e.level}")
+                        }
+                    }
+                    for (car in 1..3) {
+                        val carName = when (car) { 1 -> "文职商业"; 2 -> "体力搬运"; 3 -> "演艺文化"; else -> "$car" }
+                        val (code, jobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = car)
+                        sendLog(context, "💼 [$carName] code=$code, 岗位数=${jobs.size}:")
+                        for (j in jobs) {
+                            sendLog(context, "   🔨 ${j.eventName} | sub=${j.subEventType} | 耗时='${j.costTime}' | 消耗='${j.cost}' | 奖励='${j.reward}' | canDo=${j.canDo} | level=${j.level}")
+                        }
+                    }
+                    sendLog(context, "✅ [全量数据探测] 抓取完成！")
+                }
                 else -> {
                     sendLog(context, "❓ [未知指令] action=$action")
                 }
@@ -798,20 +896,33 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
             StoryStatusResult(-99, null, null, null)
         }
 
-    private suspend fun settleStoryAwait(storyId: String, petId: String, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, ByteArray?> =
+   private suspend fun settleStoryAwait(storyId: String, petId: String, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, ByteArray?> =
+       try {
+           withTimeoutOrNull(timeoutMs) {
+               suspendCancellableCoroutine { cont ->
+                   bridge.settleStory(storyId, petId) { code, data ->
+                       if (cont.isActive) cont.resume(Pair(code, data))
+                   }
+               }
+           } ?: Pair(-99, null)
+       } catch (_: Throwable) {
+           Pair(-99, null)
+       }
+
+    private suspend fun recallStoryAwait(storyId: String, petId: String, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, String?> =
         try {
             withTimeoutOrNull(timeoutMs) {
                 suspendCancellableCoroutine { cont ->
-                    bridge.settleStory(storyId, petId) { code, data ->
-                        if (cont.isActive) cont.resume(Pair(code, data))
+                    bridge.recallStory(storyId, petId) { code, _, errorMsg ->
+                        if (cont.isActive) cont.resume(Pair(code, errorMsg))
                     }
                 }
-            } ?: Pair(-99, null)
-        } catch (_: Throwable) {
-            Pair(-99, null)
+            } ?: Pair(-99, "超时")
+        } catch (t: Throwable) {
+            Pair(-99, t.message)
         }
 
-    suspend fun queryFeedTimesAwait(timeoutMs: Long = NETWORK_TIMEOUT_MS): Triple<Int, Int, Int> =
+   suspend fun queryFeedTimesAwait(timeoutMs: Long = NETWORK_TIMEOUT_MS): Triple<Int, Int, Int> =
         try {
             withTimeoutOrNull(timeoutMs) {
                 suspendCancellableCoroutine { cont ->
@@ -913,10 +1024,45 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
                         if (cont.isActive) cont.resume(Triple(code, stage, lastSub))
                     }
                 }
-            } ?: Triple(-99, 0, 0L)
+           } ?: Triple(-99, 0, 0L)
+       } catch (_: Throwable) {
+           Triple(-99, 0, 0L)
+       }
+
+    suspend fun querySecondMapInfoDetailsAwait(
+        eventType: Long = 6100L,
+        petId: String,
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): QQPetDirectBridge.SecondMapDetails =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.querySecondMapInfoDetails(eventType, petId) { details ->
+                        if (cont.isActive) cont.resume(details)
+                    }
+                }
+            } ?: QQPetDirectBridge.SecondMapDetails(-99, 0, 0L, emptyList())
         } catch (_: Throwable) {
-            Triple(-99, 0, 0L)
+            QQPetDirectBridge.SecondMapDetails(-99, 0, 0L, emptyList())
         }
+
+    suspend fun preloadAccountDataAwait(petId: String): Triple<QQPetDirectBridge.SecondMapDetails?, List<QQPetDirectBridge.SelectEvent>?, List<QQPetDirectBridge.SelectEvent>?> {
+        val details = querySecondMapInfoDetailsAwait(6100L, petId)
+        if (details.code == 0) {
+            cachedSchoolDetails = details
+        }
+        val targetStage = if (details.currentStage > 0) details.currentStage else 3
+        val (cCode, courses) = querySelectEventsAwait(6100L, petId, schoolStage = targetStage, careerType = 0)
+        if (cCode == 0 && courses.isNotEmpty()) {
+            cachedSchoolCourses = courses
+        }
+        val targetCareer = when (prefCustomWorkType) { 0 -> 3; 1 -> 1; 2 -> 2; else -> 3 }
+        val (jCode, jobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareer)
+        if (jCode == 0 && jobs.isNotEmpty()) {
+            cachedWorkJobs = jobs
+        }
+        return Triple(cachedSchoolDetails, cachedSchoolCourses, cachedWorkJobs)
+    }
 
     suspend fun querySelectEventsAwait(
         eventType: Long,

@@ -9,9 +9,14 @@ object PreferencesHelper {
     const val KEY_WORK = "key_work"
    const val KEY_CARE = "key_care"
    const val KEY_ADVENTURE = "key_adventure"
-   const val KEY_SETTLE = "key_settle"
+    const val KEY_SETTLE = "key_settle"
     const val KEY_STUDY_MODE = "key_study_mode"
     const val KEY_WORK_MODE = "key_work_mode"
+    const val KEY_SCHOOL_STAGE = "key_custom_school_stage"
+    const val KEY_COURSE_SUBJECT = "key_custom_course_subject"
+    const val KEY_COURSE_DURATION = "key_custom_course_duration"
+    const val KEY_WORK_TYPE = "key_custom_work_type"
+    const val KEY_WORK_DURATION = "key_custom_work_duration"
 
    fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

@@ -1,5 +1,6 @@
 package com.copilot.qqpet.ui
 
+import com.copilot.qqpet.protocol.QQPetDirectBridge
 import android.animation.ValueAnimator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -146,6 +147,15 @@ class AppleSwitchView(context: Context) : View(context) {
 }
 
 /**
+ * 分段项状态模型 (支持项目级置灰、禁用与未解锁提示)
+ */
+data class SegmentItem(
+    val title: String,
+    val enabled: Boolean = true,
+    val disabledTip: String? = null
+)
+
+/**
  * 纯代码自绘制的 iOS 标准 Segmented Control (分段药丸选择器)
  * 纯灰底座 (#EBEBED) + 纯白高亮卡片 (#FFFFFF) + 柔和投影
  */
@@ -157,6 +167,7 @@ class AppleSegmentedControl(
 ) : LinearLayout(context) {
 
     private val textViews = mutableListOf<TextView>()
+    private val itemStates = mutableListOf<SegmentItem>()
 
     init {
         orientation = HORIZONTAL
@@ -168,6 +179,7 @@ class AppleSegmentedControl(
         setPadding(dp(2.5f).toInt(), dp(2.5f).toInt(), dp(2.5f).toInt(), dp(2.5f).toInt())
 
         items.forEachIndexed { index, title ->
+            itemStates.add(SegmentItem(title, enabled = true))
             val tv = TextView(context).apply {
                 text = title
                 textSize = 12f
@@ -175,6 +187,12 @@ class AppleSegmentedControl(
                 setPadding(dp(2f).toInt(), dp(5.5f).toInt(), dp(2f).toInt(), dp(5.5f).toInt())
                 layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1.0f)
                 setOnClickListener {
+                    val state = itemStates.getOrNull(index)
+                    if (state != null && !state.enabled) {
+                        val tip = state.disabledTip ?: "该选项尚未解锁"
+                        android.widget.Toast.makeText(context, tip, android.widget.Toast.LENGTH_SHORT).show()
+                        return@setOnClickListener
+                    }
                     if (selectedIndex != index) {
                         selectedIndex = index
                         updateSelection()
@@ -202,8 +220,25 @@ class AppleSegmentedControl(
         textViews.forEach { it.isEnabled = enabled }
     }
 
+    fun updateItemStates(newStates: List<SegmentItem>) {
+        if (newStates.size != itemStates.size) return
+        for (i in newStates.indices) {
+            itemStates[i] = newStates[i]
+            val tv = textViews.getOrNull(i) ?: continue
+            tv.text = newStates[i].title
+            tv.alpha = if (newStates[i].enabled) 1.0f else 0.38f
+        }
+        if (selectedIndex in itemStates.indices && !itemStates[selectedIndex].enabled) {
+            val fallback = itemStates.indexOfFirst { it.enabled }.takeIf { it >= 0 } ?: 0
+            selectedIndex = fallback
+            onItemSelected(selectedIndex)
+        }
+        updateSelection()
+    }
+
     private fun updateSelection() {
         textViews.forEachIndexed { idx, tv ->
+            val isItemEnabled = itemStates.getOrNull(idx)?.enabled ?: true
             if (idx == selectedIndex) {
                 tv.setTextColor(Color.parseColor("#1C1C1E"))
                 tv.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
@@ -213,11 +248,13 @@ class AppleSegmentedControl(
                     setStroke(dp(0.5f).toInt(), Color.parseColor("#12000000"))
                 }
                 tv.elevation = dp(1.5f)
+                tv.alpha = 1.0f
             } else {
-                tv.setTextColor(Color.parseColor("#8E8E93"))
+                tv.setTextColor(if (isItemEnabled) Color.parseColor("#8E8E93") else Color.parseColor("#AEAEB2"))
                 tv.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 tv.background = null
                 tv.elevation = 0f
+                tv.alpha = if (isItemEnabled) 1.0f else 0.38f
             }
         }
     }
@@ -359,6 +396,13 @@ object QQSettingDialog {
 
         val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
 
+        data class RowControls(
+            val descView: TextView,
+            val primarySeg: AppleSegmentedControl?,
+            val secondarySeg: AppleSegmentedControl?,
+            val tertiarySeg: AppleSegmentedControl?
+        )
+
         fun createAppleStyleRow(
             badgeIcon: String,
             badgeColor: String,
@@ -369,8 +413,14 @@ object QQSettingDialog {
             isLast: Boolean,
             segmentedItems: List<String>? = null,
             segmentedPrefKey: String? = null,
+            secondarySegmentedItems: List<String>? = null,
+            secondarySegmentedPrefKey: String? = null,
+            secondaryTitle: String? = null,
+            tertiarySegmentedItems: List<String>? = null,
+            tertiarySegmentedPrefKey: String? = null,
+            tertiaryTitle: String? = null,
             descMapper: ((Int) -> String)? = null
-        ) {
+        ): RowControls {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -414,11 +464,62 @@ object QQSettingDialog {
             textLayout.addView(dView)
             row.addView(textLayout)
 
+            var secSegControl: AppleSegmentedControl? = null
             var segControl: AppleSegmentedControl? = null
             if (segmentedItems != null && segmentedPrefKey != null) {
                 segControl = AppleSegmentedControl(context, segmentedItems, currentMode) { selectedIndex ->
                     prefs.edit().putInt(segmentedPrefKey, selectedIndex).commit()
                     descMapper?.let { dView.text = it(selectedIndex) }
+                    syncConfig(prefs, engine, context)
+                    if (segmentedPrefKey == PreferencesHelper.KEY_WORK_TYPE) {
+                        val active = engine ?: HookEntry.globalEngine
+                        if (active != null) {
+                            CoroutineScope(Dispatchers.IO).launch {
+                                val petId = PetAdventureEngine.cachedPetId ?: active.queryOwnPetAwait().second
+                                if (!petId.isNullOrEmpty()) {
+                                    val career = when (selectedIndex) { 0 -> 3; 1 -> 1; 2 -> 2; else -> 3 }
+                                    val (jCode, jobs) = active.querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = career)
+                                    if (jCode == 0 && jobs.isNotEmpty()) {
+                                        PetAdventureEngine.cachedWorkJobs = jobs
+                                        mainHandler.post {
+                                            val j10 = jobs.find { it.costTime.contains("10") }
+                                            val j45 = jobs.find { it.costTime.contains("45") }
+                                            val j2h = jobs.find { it.costTime.contains("2小时") }
+                                            val j4h = jobs.find { it.costTime.contains("4小时") }
+                                            val can10 = j10?.canDo ?: true
+                                            val can45 = j45?.canDo ?: true
+                                            val can2h = j2h?.canDo ?: true
+                                            val can4h = j4h?.canDo ?: true
+                                            val jobItems = listOf(
+                                                SegmentItem("智能挂机", enabled = true),
+                                                SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未解锁" else null),
+                                                SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未解锁" else null),
+                                                SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未解锁" else null),
+                                                SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未解锁" else null)
+                                            )
+                                            secSegControl?.updateItemStates(jobItems)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (secondarySegmentedItems != null && secondarySegmentedPrefKey != null) {
+                val currentSecMode = prefs.getInt(secondarySegmentedPrefKey, 0)
+                secSegControl = AppleSegmentedControl(context, secondarySegmentedItems, currentSecMode) { selectedIndex ->
+                    prefs.edit().putInt(secondarySegmentedPrefKey, selectedIndex).commit()
+                    syncConfig(prefs, engine, context)
+                }
+            }
+
+            var terSegControl: AppleSegmentedControl? = null
+            if (tertiarySegmentedItems != null && tertiarySegmentedPrefKey != null) {
+                val currentTerMode = prefs.getInt(tertiarySegmentedPrefKey, 0)
+                terSegControl = AppleSegmentedControl(context, tertiarySegmentedItems, currentTerMode) { selectedIndex ->
+                    prefs.edit().putInt(tertiarySegmentedPrefKey, selectedIndex).commit()
                     syncConfig(prefs, engine, context)
                 }
             }
@@ -429,20 +530,60 @@ object QQSettingDialog {
                 onCheckedChangeListener = { isChecked ->
                     prefs.edit().putBoolean(prefKey, isChecked).commit()
                     segControl?.setControlEnabled(isChecked)
+                    secSegControl?.setControlEnabled(isChecked)
+                    terSegControl?.setControlEnabled(isChecked)
                     syncConfig(prefs, engine, context)
                 }
             }
             segControl?.setControlEnabled(initialChecked)
+            secSegControl?.setControlEnabled(initialChecked)
+            terSegControl?.setControlEnabled(initialChecked)
             row.addView(sw)
             switchesCard.addView(row)
 
             if (segControl != null) {
                 val segContainer = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(dp(context, 48), 0, 0, dp(context, 10))
+                    setPadding(dp(context, 48), 0, 0, if (secSegControl != null) dp(context, 6) else dp(context, 10))
                     addView(segControl)
                 }
                 switchesCard.addView(segContainer)
+            }
+
+            if (secSegControl != null) {
+                val secContainer = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(context, 48), 0, 0, if (terSegControl != null) dp(context, 6) else dp(context, 10))
+                    if (!secondaryTitle.isNullOrEmpty()) {
+                        val stView = TextView(context).apply {
+                            text = secondaryTitle
+                            textSize = 11.5f
+                            setTextColor(Color.parseColor("#8E8E93"))
+                            setPadding(0, 0, 0, dp(context, 4))
+                        }
+                        addView(stView)
+                    }
+                    addView(secSegControl)
+                }
+                switchesCard.addView(secContainer)
+            }
+
+            if (terSegControl != null) {
+                val terContainer = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(context, 48), 0, 0, dp(context, 10))
+                    if (!tertiaryTitle.isNullOrEmpty()) {
+                        val ttView = TextView(context).apply {
+                            text = tertiaryTitle
+                            textSize = 11.5f
+                            setTextColor(Color.parseColor("#8E8E93"))
+                            setPadding(0, 0, 0, dp(context, 4))
+                        }
+                        addView(ttView)
+                    }
+                    addView(terSegControl)
+                }
+                switchesCard.addView(terContainer)
             }
 
             if (!isLast) {
@@ -457,9 +598,10 @@ object QQSettingDialog {
                 }
                 switchesCard.addView(divider)
             }
+            return RowControls(dView, segControl, secSegControl, terSegControl)
         }
 
-        createAppleStyleRow(
+        val studyControls = createAppleStyleRow(
             badgeIcon = "📖",
             badgeColor = "#FF9500",
             title = "进阶学力研修",
@@ -467,19 +609,26 @@ object QQSettingDialog {
             prefKey = "key_study",
             defaultVal = true,
             isLast = false,
-            segmentedItems = listOf("均衡", "智力", "力量", "魅力"),
-            segmentedPrefKey = "key_study_mode",
-            descMapper = { mode ->
-                when (mode) {
-                    1 -> "专攻智力课程 (文化学园·专精智力)"
-                    2 -> "专攻力量锻炼 (体能学园·专精武力)"
-                    3 -> "专攻魅力修养 (艺术学园·专精艺术)"
-                    else -> "均衡轮转修习 (智力->力量->魅力循环)"
+            segmentedItems = listOf("自适应", "初级", "中级", "高级", "进修"),
+            segmentedPrefKey = PreferencesHelper.KEY_SCHOOL_STAGE,
+            secondarySegmentedItems = listOf("智能轮换", "智力(文科)", "力量(体育)", "魅力(艺术)"),
+            secondarySegmentedPrefKey = PreferencesHelper.KEY_COURSE_SUBJECT,
+            secondaryTitle = "专攻科目偏好 (按官方属性加点过滤)",
+            tertiarySegmentedItems = listOf("任意课时", "基础短课(10-45m)", "进阶长课(1-2.25h)"),
+            tertiarySegmentedPrefKey = PreferencesHelper.KEY_COURSE_DURATION,
+            tertiaryTitle = "学园课时偏好 (官方阶梯时长)",
+            descMapper = { stage ->
+                when (stage) {
+                    1 -> "就读初级学园 (初阶课程/基础打底)"
+                    2 -> "就读中级学园 (进阶课程/技能专精)"
+                    3 -> "就读高级学园 (高阶深造/学府殿堂)"
+                    4 -> "就读进修学园 (最高学府/极限强化)"
+                    else -> "智能自适应 (自动就读已解锁最高学园)"
                 }
             }
         )
 
-        createAppleStyleRow(
+        val workControls = createAppleStyleRow(
             badgeIcon = "💼",
             badgeColor = "#34C759",
             title = "全自动打工派遣",
@@ -487,14 +636,17 @@ object QQSettingDialog {
             prefKey = "key_work",
             defaultVal = true,
             isLast = false,
-            segmentedItems = listOf("均衡", "文职", "体力", "演艺"),
-            segmentedPrefKey = "key_work_mode",
+            segmentedItems = listOf("演艺文化(高收)", "文职商业", "体力搬运", "三业轮换"),
+            segmentedPrefKey = PreferencesHelper.KEY_WORK_TYPE,
+            secondarySegmentedItems = listOf("智能挂机", "10分钟", "45分钟", "2小时", "4小时"),
+            secondarySegmentedPrefKey = PreferencesHelper.KEY_WORK_DURATION,
+            secondaryTitle = "打工时长偏好 (官方实测阶梯工时)",
             descMapper = { mode ->
                 when (mode) {
-                    1 -> "专攻文化兼职 (图书管理/文员兼职)"
-                    2 -> "专攻体力兼职 (小镇搬运/工地锻炼)"
-                    3 -> "专攻演艺兼职 (戏剧参演/舞台演艺)"
-                    else -> "均衡轮流派遣 (文化->体力->演艺兼职)"
+                    0 -> "演艺文化行业 (官方最高收益 · 结界除灵)"
+                    1 -> "文职商业行业 (招牌底稿 · 稳定进账)"
+                    2 -> "体力搬运行业 (守候拼图 · 体能锻炼)"
+                    else -> "三业轮流派遣 (演艺->文职->体力循环)"
                 }
             }
         )
@@ -583,10 +735,35 @@ object QQSettingDialog {
 
         val row3 = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, dp(context, 14))
+            setPadding(0, 0, 0, dp(context, 8))
         }
         row3.addView(createSecondaryButton("💰 结算并领取探险收益", "settle", isFullWidth = true))
         root.addView(row3)
+
+        // 强力即时召回按钮 (官方 0x9760_1 中断召回)
+        val recallButton = Button(context).apply {
+            text = "🚨 立即召回宠物回家 (中断学习/打工)"
+            textSize = 14f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#FF3B30"))
+                cornerRadius = dp(context, 12).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(context, 44)
+            ).apply {
+                setMargins(0, 0, 0, dp(context, 14))
+            }
+            setOnClickListener {
+                triggerAction(context, engine, "recall")
+                mainHandler.postDelayed({
+                    subtitleView.text = PetAdventureEngine.formatLiveStatusText()
+                }, 1000L)
+            }
+        }
+        root.addView(recallButton)
 
         // ================= 4. 底部外链 =================
         val bottomBar = LinearLayout(context).apply {
@@ -635,6 +812,114 @@ object QQSettingDialog {
         }
         mainHandler.post(tickerRunnable)
 
+        val applyUnlockStates: (QQPetDirectBridge.SecondMapDetails?, List<QQPetDirectBridge.SelectEvent>?, List<QQPetDirectBridge.SelectEvent>?) -> Unit = { details, courses, jobs ->
+            if (details != null && details.code == 0) {
+                val curStage = details.currentStage
+                val stageItems = mutableListOf<SegmentItem>()
+                // 0: 自适应
+                stageItems.add(SegmentItem("自适应", enabled = true))
+
+                // 1: 初级
+                val s1 = details.stages.find { it.stage == 1 }
+                val s1Grad = curStage > 1 || (s1?.isGraduated == true)
+                val s1Enable = curStage == 1
+                stageItems.add(
+                    SegmentItem(
+                        if (s1Grad) "初级(已毕业)" else "初级",
+                        enabled = s1Enable,
+                        disabledTip = if (s1Grad) "初级学园已毕业（腾讯规则禁止重复就读）" else if (!s1Enable) "初级学园尚未解锁" else null
+                    )
+                )
+
+                // 2: 中级
+                val s2 = details.stages.find { it.stage == 2 }
+                val s2Grad = curStage > 2 || (s2?.isGraduated == true)
+                val s2Enable = curStage == 2
+                stageItems.add(
+                    SegmentItem(
+                        if (s2Grad) "中级(已毕业)" else if (curStage < 2) "中级(未解锁)" else "中级",
+                        enabled = s2Enable,
+                        disabledTip = if (s2Grad) "中级学园已毕业（腾讯规则禁止重复就读）" else if (curStage < 2) "中级学园尚未解锁（需先完成初级修习）" else null
+                    )
+                )
+
+                // 3: 高级
+                val s3 = details.stages.find { it.stage == 3 }
+                val s3Grad = curStage > 3 || (s3?.isGraduated == true)
+                val s3Enable = curStage == 3
+                stageItems.add(
+                    SegmentItem(
+                        if (s3Grad) "高级(已毕业)" else if (curStage < 3) "高级(未解锁)" else "高级",
+                        enabled = s3Enable,
+                        disabledTip = if (s3Grad) "高级学园已毕业" else if (curStage < 3) "高级学园尚未解锁（需先完成中级深造）" else null
+                    )
+                )
+
+                // 4: 进修
+                val s4Enable = curStage == 4
+                stageItems.add(
+                    SegmentItem(
+                        if (!s4Enable) "进修(未解锁)" else "进修",
+                        enabled = s4Enable,
+                        disabledTip = if (!s4Enable) "进修学园尚未解锁（需先完成高级学府深造）" else null
+                    )
+                )
+
+                studyControls.primarySeg?.updateItemStates(stageItems)
+
+                val curStageName = when (curStage) {
+                    1 -> "初级学园"
+                    2 -> "中级学园"
+                    3 -> "高级学园"
+                    4 -> "进修学园"
+                    else -> "第${curStage}阶段学园"
+                }
+                val attrPart = if (details.power > 0 || details.intel > 0 || details.charm > 0) {
+                    " · 力量${details.power} 智力${details.intel} 魅力${details.charm}"
+                } else ""
+                val savedStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
+                studyControls.descView.text = if (savedStage == 0) {
+                    "智能自适应: 当前就读 $curStageName$attrPart"
+                } else {
+                    "已锁定 $curStageName (已解锁最高学府)$attrPart"
+                }
+            }
+
+            if (!jobs.isNullOrEmpty()) {
+                val j10 = jobs.find { it.costTime.contains("10") }
+                val j45 = jobs.find { it.costTime.contains("45") }
+                val j2h = jobs.find { it.costTime.contains("2小时") }
+                val j4h = jobs.find { it.costTime.contains("4小时") }
+
+                val can10 = j10?.canDo ?: true
+                val can45 = j45?.canDo ?: true
+                val can2h = j2h?.canDo ?: true
+                val can4h = j4h?.canDo ?: true
+
+                val jobItems = listOf(
+                    SegmentItem("智能挂机", enabled = true),
+                    SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未解锁" else null),
+                    SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未解锁" else null),
+                    SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未解锁" else null),
+                    SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未解锁" else null)
+                )
+                workControls.secondarySeg?.updateItemStates(jobItems)
+
+                val unlockedCount = listOf(can10, can45, can2h, can4h).count { it }
+                val workSummary = if (unlockedCount == 4) "全部4阶工时均已解锁" else "已解锁 $unlockedCount/4 阶工时"
+                val curType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
+                val typeName = when (curType) { 0 -> "演艺文化(高收)"; 1 -> "文职商业"; 2 -> "体力搬运"; else -> "三业轮换" }
+                workControls.descView.text = "$typeName · $workSummary (极速/短工/中工/长工)"
+            }
+        }
+
+        // 立即应用内存中已有的解锁缓存（0ms 秒开无白屏）
+        applyUnlockStates(
+            PetAdventureEngine.cachedSchoolDetails,
+            PetAdventureEngine.cachedSchoolCourses,
+            PetAdventureEngine.cachedWorkJobs
+        )
+
         // 弹窗拉起时即刻同步服务端最新进度与倒计时
         val activeEngine = engine ?: HookEntry.globalEngine
         if (activeEngine != null) {
@@ -642,6 +927,12 @@ object QQSettingDialog {
             CoroutineScope(Dispatchers.IO).launch {
                 val petId = PetAdventureEngine.cachedPetId ?: activeEngine.queryOwnPetAwait().second
                 if (!petId.isNullOrEmpty()) {
+                    // 率先抓取账号全量学业与打工解锁数据
+                    val (details, courses, jobs) = activeEngine.preloadAccountDataAwait(petId)
+                    mainHandler.post {
+                        applyUnlockStates(details, courses, jobs)
+                    }
+
                     val status = activeEngine.queryStoryStatusAwait(petId)
                     if (status.code == 0) {
                         val rem = status.remaining
@@ -706,10 +997,15 @@ object QQSettingDialog {
         val settle = prefs.getBoolean("key_settle", true)
         val studyMode = prefs.getInt("key_study_mode", 0)
         val workMode = prefs.getInt("key_work_mode", 0)
+        val schoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
+        val courseSubject = prefs.getInt(PreferencesHelper.KEY_COURSE_SUBJECT, 0)
+        val courseDuration = prefs.getInt(PreferencesHelper.KEY_COURSE_DURATION, 0)
+        val workType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
+        val workDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
 
-        HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, studyMode, workMode)
+        HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
         if (engine != null && engine !== HookEntry.globalEngine) {
-            engine.updateConfig(study, work, care, adv, settle, studyMode, workMode)
+            engine.updateConfig(study, work, care, adv, settle, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
         }
         val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
             setPackage("com.tencent.mobileqq")
@@ -720,6 +1016,11 @@ object QQSettingDialog {
             putExtra("extra_settle", settle)
             putExtra("extra_study_mode", studyMode)
             putExtra("extra_work_mode", workMode)
+            putExtra("extra_school_stage", schoolStage)
+            putExtra("extra_course_subject", courseSubject)
+            putExtra("extra_course_duration", courseDuration)
+            putExtra("extra_work_type", workType)
+            putExtra("extra_work_duration", workDuration)
         }
         context.sendBroadcast(intent)
     }

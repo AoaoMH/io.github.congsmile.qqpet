@@ -199,7 +199,12 @@ class HookEntry : IXposedHookLoadPackage {
                             val settle = intent.getBooleanExtra("extra_settle", true)
                             val studyMode = intent.getIntExtra("extra_study_mode", 0)
                             val workMode = intent.getIntExtra("extra_work_mode", 0)
-                            globalEngine?.updateConfig(study, work, care, adv, settle, studyMode, workMode)
+                            val schoolStage = intent.getIntExtra("extra_school_stage", 0)
+                            val courseSubject = intent.getIntExtra("extra_course_subject", 0)
+                            val courseDuration = intent.getIntExtra("extra_course_duration", 0)
+                            val workType = intent.getIntExtra("extra_work_type", 0)
+                            val workDuration = intent.getIntExtra("extra_work_duration", 0)
+                            globalEngine?.updateConfig(study, work, care, adv, settle, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
                             try {
                                 val prefs = ctx.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
                                 prefs.edit()
@@ -210,10 +215,15 @@ class HookEntry : IXposedHookLoadPackage {
                                     .putBoolean("key_settle", settle)
                                     .putInt("key_study_mode", studyMode)
                                     .putInt("key_work_mode", workMode)
+                                    .putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_SCHOOL_STAGE, schoolStage)
+                                    .putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_COURSE_SUBJECT, courseSubject)
+                                    .putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_COURSE_DURATION, courseDuration)
+                                    .putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_WORK_TYPE, workType)
+                                    .putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_WORK_DURATION, workDuration)
                                     .commit()
                             } catch (_: Throwable) {}
-                            XposedBridge.log("[$TAG] 跨进程配置更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 学习模式=$studyMode, 打工模式=$workMode")
-                            globalEngine?.sendLog(ctx, "⚙️ [配置已同步] 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 学习模式=$studyMode, 打工模式=$workMode")
+                            XposedBridge.log("[$TAG] 跨进程配置更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration")
+                            globalEngine?.sendLog(ctx, "⚙️ [配置已同步] 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration")
                         }
                         ACTION_TRIGGER_ACTION -> {
                             val action = intent.getStringExtra(PetAdventureEngine.EXTRA_ACTION) ?: "cycle"

@@ -23,6 +23,23 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         val reward: String = ""
     )
 
+    data class SchoolStageInfo(
+        val stage: Int,
+        val title: String,
+        val limitStatus: Int,
+        val isGraduated: Boolean
+    )
+
+    data class SecondMapDetails(
+        val code: Int,
+        val currentStage: Int,
+        val lastSubEvent: Long,
+        val stages: List<SchoolStageInfo>,
+        val power: Long = 0L,
+        val intel: Long = 0L,
+        val charm: Long = 0L
+    )
+
     companion object {
         private const val TAG = "QQPetDirectBridge"
         private const val DELEGATE_CLASS = "com.tencent.mobileqq.qqpet.delegate.l"
@@ -380,6 +397,22 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
     }
 
     /**
+     * 提前中断并召回宠物回家 (官方 doInterruptSettle，CMD 38752，tag 4 = 3)
+     */
+    fun recallStory(storyId: String, petId: String, callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit) {
+        val body = ProtoWire.message()
+            .writeString(1, storyId)
+            .writeVarint(2, 6000L)
+            .writeString(3, petId)
+            .writeVarint(4, 3L) // 3 代表提前召回中断
+            .writeVarint(100, 2L)
+            .toByteArray()
+        sendOidb("OidbSvcTrpcTcp.0x9760_1", 38752, 1, body) { code, data, errorMsg ->
+            callback(code, data, errorMsg)
+        }
+    }
+
+    /**
      * 发起冒险探索
      */
     fun startAdventure(
@@ -460,14 +493,63 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
             if (code == 0 && data != null) {
                 stage = (ProtoWire.firstVarint(data, 4) ?: 0L).toInt()
                 lastSub = ProtoWire.firstVarint(data, 5) ?: 0L
-                Log.i(TAG, "querySecondMapInfo 成功: eventType=$eventType, schoolStage=$stage, lastSubEvent=$lastSub")
+            Log.i(TAG, "querySecondMapInfo 成功: eventType=$eventType, schoolStage=$stage, lastSubEvent=$lastSub")
+        }
+        callback(code, stage, lastSub, data)
+    }
+}
+
+    /**
+     * 查询二级地图全量详情与账号属性 (阶段列表、解锁状态、毕业标识、三大主属性)
+     */
+    fun querySecondMapInfoDetails(
+        eventType: Long = 6100L,
+        petId: String,
+        callback: (SecondMapDetails) -> Unit
+    ) {
+        val body = ProtoWire.message()
+            .writeVarint(1, eventType)
+            .writeString(2, petId)
+            .writeVarint(100, 2L)
+            .toByteArray()
+
+        sendOidb("OidbSvcTrpcTcp.0x9b60_1", 39776, 1, body) { code, data, _ ->
+            var stage = 0
+            var lastSub = 0L
+            val stageList = mutableListOf<SchoolStageInfo>()
+            var power = 0L
+            var intel = 0L
+            var charm = 0L
+            if (code == 0 && data != null) {
+                stage = (ProtoWire.firstVarint(data, 4) ?: 0L).toInt()
+                lastSub = ProtoWire.firstVarint(data, 5) ?: 0L
+                val itemBytesList = ProtoWire.allBytes(data, 1)
+                for (itemBytes in itemBytesList) {
+                    val title = ProtoWire.firstString(itemBytes, 1) ?: ""
+                    val limitStatus = (ProtoWire.firstVarint(itemBytes, 4) ?: 0L).toInt()
+                    val stg = (ProtoWire.firstVarint(itemBytes, 21) ?: 0L).toInt()
+                    val graduated = (ProtoWire.firstVarint(itemBytes, 23) ?: 0L) != 0L
+                    if (stg > 0) {
+                        stageList.add(SchoolStageInfo(stg, title, limitStatus, graduated))
+                    }
+                }
+                val attrBytes = ProtoWire.firstBytes(data, 2)
+                if (attrBytes != null) {
+                    val pBytes = ProtoWire.firstBytes(attrBytes, 1)
+                    if (pBytes != null) power = ProtoWire.firstVarint(pBytes, 3) ?: 0L
+                    val iBytes = ProtoWire.firstBytes(attrBytes, 2)
+                    if (iBytes != null) intel = ProtoWire.firstVarint(iBytes, 3) ?: 0L
+                    val cBytes = ProtoWire.firstBytes(attrBytes, 3)
+                    if (cBytes != null) charm = ProtoWire.firstVarint(cBytes, 3) ?: 0L
+                }
+                Log.i(TAG, "querySecondMapInfoDetails 成功: stage=$stage, stagesCount=${stageList.size}, attr=(p=$power, i=$intel, c=$charm)")
             }
-            callback(code, stage, lastSub, data)
+            callback(SecondMapDetails(code, stage, lastSub, stageList, power, intel, charm))
         }
     }
 
-    /**
-     * 动态拉取当前阶段开放的课程或工种列表 (官方 0x9ab2_1 协议)
+/**
+ * 动态拉取当前阶段开放的课程或工种列表 (官方 0x9ab2_1 协议)
      * 解析出真实的 eventName, subEventType, canDo
      */
     fun querySelectEvents(
@@ -503,6 +585,7 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                     val cost = ProtoWire.firstString(itemBytes, 6) ?: ""
                     val costTime = ProtoWire.firstString(itemBytes, 7) ?: ""
                     val reward = ProtoWire.firstString(itemBytes, 8) ?: ""
+                    Log.d(TAG, "[$eventType-EventItem] name='$name', sub=$sub, can=$can, level=$level, cost='$cost', time='$costTime', reward='$reward'")
                     if (name.isNotEmpty() && sub > 0L) {
                         list.add(SelectEvent(name, sub, can, level, cost, costTime, reward))
                     }
