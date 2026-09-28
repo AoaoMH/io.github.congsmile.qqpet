@@ -27,9 +27,9 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
     companion object {
         private const val TAG = "PetAdventureEngine"
         private const val NETWORK_TIMEOUT_MS = 8000L
-        const val ACTION_ENGINE_LOG = "com.copilot.qqpet.ACTION_ENGINE_LOG"
-        const val ACTION_TRIGGER_ACTION = "com.copilot.qqpet.ACTION_TRIGGER_ACTION"
-        const val ACTION_UPDATE_CONFIG = "com.copilot.qqpet.ACTION_UPDATE_CONFIG"
+        const val ACTION_ENGINE_LOG = "io.github.congsmile.qqpet.ACTION_ENGINE_LOG"
+        const val ACTION_TRIGGER_ACTION = "io.github.congsmile.qqpet.ACTION_TRIGGER_ACTION"
+        const val ACTION_UPDATE_CONFIG = "io.github.congsmile.qqpet.ACTION_UPDATE_CONFIG"
         const val EXTRA_LOG_TEXT = "extra_log_text"
         const val EXTRA_ACTION = "extra_action"
 
@@ -1186,7 +1186,7 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         Log.i(TAG, message)
         try {
             val intent = Intent(ACTION_ENGINE_LOG).apply {
-                setPackage("com.copilot.qqpet")
+                setPackage("io.github.congsmile.qqpet")
                 putExtra(EXTRA_LOG_TEXT, message)
             }
             context.sendBroadcast(intent)

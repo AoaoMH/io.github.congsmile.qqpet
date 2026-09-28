@@ -180,7 +180,7 @@ object QQSettingInjector {
                 }
             } else {
                 val intent = Intent().apply {
-                    setClassName("com.copilot.qqpet", "com.copilot.qqpet.ui.MainActivity")
+                    setClassName(HookEntry.MODULE_PACKAGE, "com.copilot.qqpet.ui.MainActivity")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(intent)

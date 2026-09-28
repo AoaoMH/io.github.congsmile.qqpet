@@ -24,10 +24,13 @@ class HookEntry : IXposedHookLoadPackage {
     companion object {
         const val TAG = "QQPetCopilot"
         const val TARGET_PACKAGE = "com.tencent.mobileqq"
-        const val MODULE_PACKAGE = "com.copilot.qqpet"
-        const val ACTION_TRIGGER_ADVENTURE = "com.copilot.qqpet.ACTION_TRIGGER_ADVENTURE"
-        const val ACTION_TRIGGER_ACTION = "com.copilot.qqpet.ACTION_TRIGGER_ACTION"
-        const val ACTION_UPDATE_CONFIG = "com.copilot.qqpet.ACTION_UPDATE_CONFIG"
+        const val MODULE_PACKAGE = "io.github.congsmile.qqpet"
+        // 注意：applicationId 已变更，但编译期 namespace 仍是 com.copilot.qqpet，
+        // 因此组件类名不能跟随 MODULE_PACKAGE，必须保持真实类路径。
+        private const val MAIN_ACTIVITY_CLASS = "com.copilot.qqpet.ui.MainActivity"
+        const val ACTION_TRIGGER_ADVENTURE = "io.github.congsmile.qqpet.ACTION_TRIGGER_ADVENTURE"
+        const val ACTION_TRIGGER_ACTION = "io.github.congsmile.qqpet.ACTION_TRIGGER_ACTION"
+        const val ACTION_UPDATE_CONFIG = "io.github.congsmile.qqpet.ACTION_UPDATE_CONFIG"
 
         private var isReceiverRegistered = false
         @Volatile
@@ -40,7 +43,7 @@ class HookEntry : IXposedHookLoadPackage {
         // 1. 本模块自身激活自检 Hook
         if (lpparam.packageName == MODULE_PACKAGE) {
             XposedHelpers.findAndHookMethod(
-                "$MODULE_PACKAGE.ui.MainActivity",
+                MAIN_ACTIVITY_CLASS,
                 lpparam.classLoader,
                 "isModuleActive",
                 XC_MethodReplacement.returnConstant(true)
