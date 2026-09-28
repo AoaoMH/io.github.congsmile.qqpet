@@ -1,10 +1,6 @@
 package com.copilot.qqpet.ui
 
-import com.copilot.qqpet.protocol.QQPetDirectBridge
 import android.animation.ValueAnimator
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Dialog
@@ -17,42 +13,46 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.Window
+import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import com.copilot.qqpet.HookEntry
 import com.copilot.qqpet.engine.PetAdventureEngine
+import com.copilot.qqpet.protocol.QQPetDirectBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * 纯代码自绘制的 iOS 标准 Toggle 控件 (AppleSwitchView)
  * 物理尺寸：51dp x 31dp (符合 iOS Human Interface Guidelines)
- * 开启背景：#34C759
- * 关闭背景：#E9E9EB
- * 滑块：纯白圆润 + 柔和投影
+ * 开启背景：#34C759，关闭背景：#E9E9EB，滑块：纯白圆润 + 柔和微投影
  */
 class AppleSwitchView(context: Context) : View(context) {
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        setShadowLayer(dp(2f), 0f, dp(1f), Color.parseColor("#30000000"))
+        setShadowLayer(dp(2f), 0f, dp(1f), Color.parseColor("#25000000"))
     }
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#15000000")
+        color = Color.parseColor("#12000000")
     }
 
     private val rect = RectF()
-    private var progress = 1.0f // 0f 为关闭，1f 为开启
+    private var progress = 1.0f
     private var animator: ValueAnimator? = null
 
     var isChecked: Boolean = true
@@ -79,14 +79,14 @@ class AppleSwitchView(context: Context) : View(context) {
     private fun animateTo(target: Float) {
         animator?.cancel()
         animator = ValueAnimator.ofFloat(progress, target).apply {
-            duration = 180
-            interpolator = DecelerateInterpolator()
-            addUpdateListener {
-                progress = it.animatedValue as Float
+            duration = 240
+            interpolator = DecelerateInterpolator(1.8f)
+            addUpdateListener { va ->
+                progress = va.animatedValue as Float
                 invalidate()
             }
-            start()
         }
+        animator?.start()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -100,15 +100,10 @@ class AppleSwitchView(context: Context) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         val r = h / 2f
-
         rect.set(0f, 0f, w, h)
 
-        val offR = 0xE9
-        val offG = 0xE9
-        val offB = 0xEB
-        val onR = 0x34
-        val onG = 0xC7
-        val onB = 0x59
+        val offR = 0xE9; val offG = 0xE9; val offB = 0xEB
+        val onR = 0x34; val onG = 0xC7; val onB = 0x59
 
         val curR = (offR + (onR - offR) * progress).toInt()
         val curG = (offG + (onG - offG) * progress).toInt()
@@ -131,6 +126,7 @@ class AppleSwitchView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_UP) {
             isChecked = !isChecked
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             onCheckedChangeListener?.invoke(isChecked)
             playSoundEffect(android.view.SoundEffectConstants.CLICK)
         }
@@ -156,8 +152,8 @@ data class SegmentItem(
 )
 
 /**
- * 纯代码自绘制的 iOS 标准 Segmented Control (分段药丸选择器)
- * 纯灰底座 (#EBEBED) + 纯白高亮卡片 (#FFFFFF) + 柔和投影
+ * 纯文字自绘制的 iOS 标准 Segmented Control (纯文字分段药丸选择器)
+ * 底座：#EBEBED，选中白色高亮卡片：#FFFFFF，未解锁置灰与点击拦截
  */
 class AppleSegmentedControl(
     context: Context,
@@ -184,17 +180,19 @@ class AppleSegmentedControl(
                 text = title
                 textSize = 12f
                 gravity = Gravity.CENTER
-                setPadding(dp(2f).toInt(), dp(5.5f).toInt(), dp(2f).toInt(), dp(5.5f).toInt())
+                setPadding(dp(2f).toInt(), dp(6.5f).toInt(), dp(2f).toInt(), dp(6.5f).toInt())
                 layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1.0f)
                 setOnClickListener {
                     val state = itemStates.getOrNull(index)
                     if (state != null && !state.enabled) {
+                        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                         val tip = state.disabledTip ?: "该选项尚未解锁"
-                        android.widget.Toast.makeText(context, tip, android.widget.Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, tip, Toast.LENGTH_SHORT).show()
                         return@setOnClickListener
                     }
                     if (selectedIndex != index) {
                         selectedIndex = index
+                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                         updateSelection()
                         onItemSelected(index)
                         playSoundEffect(android.view.SoundEffectConstants.CLICK)
@@ -215,7 +213,7 @@ class AppleSegmentedControl(
     }
 
     fun setControlEnabled(enabled: Boolean) {
-        alpha = if (enabled) 1.0f else 0.4f
+        alpha = if (enabled) 1.0f else 0.38f
         isEnabled = enabled
         textViews.forEach { it.isEnabled = enabled }
     }
@@ -226,35 +224,26 @@ class AppleSegmentedControl(
             itemStates[i] = newStates[i]
             val tv = textViews.getOrNull(i) ?: continue
             tv.text = newStates[i].title
-            tv.alpha = if (newStates[i].enabled) 1.0f else 0.38f
+            tv.alpha = if (newStates[i].enabled) 1.0f else 0.35f
         }
-        if (selectedIndex in itemStates.indices && !itemStates[selectedIndex].enabled) {
-            val fallback = itemStates.indexOfFirst { it.enabled }.takeIf { it >= 0 } ?: 0
-            selectedIndex = fallback
-            onItemSelected(selectedIndex)
-        }
-        updateSelection()
     }
 
     private fun updateSelection() {
-        textViews.forEachIndexed { idx, tv ->
-            val isItemEnabled = itemStates.getOrNull(idx)?.enabled ?: true
-            if (idx == selectedIndex) {
-                tv.setTextColor(Color.parseColor("#1C1C1E"))
+        for (i in textViews.indices) {
+            val tv = textViews[i]
+            val isSel = (i == selectedIndex)
+            if (isSel) {
                 tv.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                tv.setTextColor(Color.parseColor("#1C1C1E"))
                 tv.background = GradientDrawable().apply {
                     setColor(Color.WHITE)
                     cornerRadius = dp(6.5f)
-                    setStroke(dp(0.5f).toInt(), Color.parseColor("#12000000"))
+                    setStroke(dp(0.5f).toInt(), Color.parseColor("#15000000"))
                 }
-                tv.elevation = dp(1.5f)
-                tv.alpha = 1.0f
             } else {
-                tv.setTextColor(if (isItemEnabled) Color.parseColor("#8E8E93") else Color.parseColor("#AEAEB2"))
                 tv.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                tv.setTextColor(Color.parseColor("#8E8E93"))
                 tv.background = null
-                tv.elevation = 0f
-                tv.alpha = if (isItemEnabled) 1.0f else 0.38f
             }
         }
     }
@@ -269,179 +258,432 @@ class AppleSegmentedControl(
 }
 
 /**
- * 遵循 Apple Design 顶级审美标准的 QQ 原生伴侣控制面板 (v1.0.19)
- * 1. 黄金排版层级：主标题 21sp Bold、副标 13sp、正文 16sp、说明 12.5sp
- * 2. 独立绘制的 iOS Toggle Switch，彻底免疫安卓主题与 ROM 污染
- * 3. 对称稳重的 2x2+1 次级操作卡片，深灰字色回归典雅质感
- * 4. 24dp 纯白圆角无边框浮岛设计
- * 5. 独创秒级动态倒计时心跳循环，时间每秒平滑跳动，杜绝视觉停滞与假死错觉
+ * 遵循 Apple Design 顶级审美标准的 QQ 原生二级设置页面 (v1.0.28)
+ * 1. 纯正二级设置页面：全屏沉浸，顶部携带返回导航栏，右滑/返回键平滑退场
+ * 2. 纯文字排版（Typography）：移除全部 Emoji 与位图，依赖字阶、字重与卡片间距构建呼吸感
+ * 3. 物理触感与弹簧动效：触控瞬间微缩反馈 (Response)，分段器平滑切换，子设置平滑展开/折叠
+ * 4. 0ms 秒开无白屏：秒级复用内存数据渲染，后台静默异步刷新校验
  */
 object QQSettingDialog {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    @SuppressLint("SetTextI18n")
+    @SuppressLint("SetTextI18n", "ClickableViewAccessibility")
     fun show(activity: Activity, engine: PetAdventureEngine?) {
         val context = activity
+        var dialogInstance: Dialog? = null
 
-        // 弹窗主体卡片 (纯白背景 + 24dp 柔和圆角)
-        val root = LinearLayout(context).apply {
+        // 根布局：全屏浅灰底色 (#F2F2F7, iOS 系统标准)
+        val fullRoot = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 20), dp(context, 20), dp(context, 20), dp(context, 22))
-            background = GradientDrawable().apply {
-                setColor(Color.WHITE)
-                cornerRadius = dp(context, 24).toFloat()
+            setBackgroundColor(Color.parseColor("#F2F2F7"))
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        // ================= 1. 顶部 Navigation Bar (iOS 标准二级顶栏) =================
+        val topBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#F2F2F7"))
+            setPadding(dp(context, 12), dp(context, 8), dp(context, 16), dp(context, 10))
+        }
+
+        // 返回按钮：纯文字 "‹ 设置"，带触控物理微缩动效
+        val backBtn = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 4), dp(context, 4), dp(context, 10), dp(context, 4))
+            applyTouchSpringEffect(this)
+            setOnClickListener {
+                dismissWithAnimation(fullRoot, dialogInstance)
             }
         }
 
-        // ================= 1. 顶部 Header =================
-        val headerLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(context, 6))
+        val backArrow = TextView(context).apply {
+            text = "‹"
+            textSize = 24f
+            typeface = Typeface.create("sans-serif-light", Typeface.BOLD)
+            setTextColor(Color.parseColor("#007AFF"))
+            setPadding(0, 0, dp(context, 2), dp(context, 2))
         }
+        val backText = TextView(context).apply {
+            text = "设置"
+            textSize = 17f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Color.parseColor("#007AFF"))
+        }
+        backBtn.addView(backArrow)
+        backBtn.addView(backText)
+        topBar.addView(backBtn)
 
-        val titleColumn = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+        // 中间标题：Q宠后台伴侣
+        val navTitle = TextView(context).apply {
+            text = "Q宠后台伴侣"
+            textSize = 17f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(Color.parseColor("#1C1C1E"))
+            gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
         }
+        topBar.addView(navTitle)
 
-        val mainTitleRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        // 右侧状态胶囊：● 运行中
+        val statusPill = TextView(context).apply {
+            text = "● 运行中"
+            textSize = 11.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(Color.parseColor("#34C759"))
+            setPadding(dp(context, 8), dp(context, 3), dp(context, 8), dp(context, 3))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#EBF9EE"))
+                cornerRadius = dp(context, 10).toFloat()
+            }
+        }
+        topBar.addView(statusPill)
+        fullRoot.addView(topBar)
+
+        // 顶栏底部分割线
+        val topDivider = View(context).apply {
+            setBackgroundColor(Color.parseColor("#E5E5EA"))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+        }
+        fullRoot.addView(topDivider)
+
+        // ================= 2. 页面主体滚动容器 (Grouped List) =================
+        val contentLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 36))
         }
 
-        val titleView = TextView(context).apply {
-            text = "Q宠后台伴侣"
-            textSize = 21f
+        // --- 头部实时状态卡片 ---
+        val statusCard = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(context, 12).toFloat()
+            }
+            setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, dp(context, 16))
+            }
+        }
+
+        val statusActionText = TextView(context).apply {
+            text = PetAdventureEngine.formatLiveStatusText()
+            textSize = 16f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             setTextColor(Color.parseColor("#1C1C1E"))
         }
-
-        val statusDot = TextView(context).apply {
-            text = "● 运行中"
-            textSize = 12f
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.parseColor("#34C759"))
-            setPadding(dp(context, 10), dp(context, 3), dp(context, 10), dp(context, 3))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#EBF9EE"))
-                cornerRadius = dp(context, 12).toFloat()
+        val statusAttributesText = TextView(context).apply {
+            val d = PetAdventureEngine.cachedSchoolDetails
+            text = if (d != null && d.code == 0) {
+                "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}"
+            } else {
+                "小宠资质 · 实时同步官方属性中"
             }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(dp(context, 8), 0, 0, 0)
-            }
-        }
-
-        mainTitleRow.addView(titleView)
-        mainTitleRow.addView(statusDot)
-        titleColumn.addView(mainTitleRow)
-
-        val subtitleView = TextView(context).apply {
-            text = PetAdventureEngine.formatLiveStatusText()
             textSize = 13f
             setTextColor(Color.parseColor("#8E8E93"))
             setPadding(0, dp(context, 4), 0, 0)
         }
-        titleColumn.addView(subtitleView)
-        headerLayout.addView(titleColumn)
-
-        var dialogInstance: Dialog? = null
-        val closeCircle = TextView(context).apply {
-            text = "✕"
-            textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#8E8E93"))
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#F2F2F7"))
-                cornerRadius = dp(context, 15).toFloat()
-            }
-            layoutParams = LinearLayout.LayoutParams(dp(context, 30), dp(context, 30))
-            setOnClickListener { dialogInstance?.dismiss() }
-        }
-        headerLayout.addView(closeCircle)
-        root.addView(headerLayout)
-
-        val spacer1 = View(context).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(context, 14)
-            )
-        }
-        root.addView(spacer1)
-
-        // ================= 2. 自动化配置分组 (iOS Grouped Section) =================
-        val sectionTitle1 = TextView(context).apply {
-            text = "自动化功能 · 智能轮转均衡调度 (Round-Robin)"
-            textSize = 13f
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.parseColor("#8E8E93"))
-            setPadding(dp(context, 4), 0, 0, dp(context, 8))
-        }
-        root.addView(sectionTitle1)
-
-        val switchesCard = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#F9FAFB"))
-                cornerRadius = dp(context, 18).toFloat()
-                setStroke(dp(context, 1), Color.parseColor("#ECECEE"))
-            }
-            setPadding(dp(context, 16), dp(context, 6), dp(context, 16), dp(context, 6))
-        }
+        statusCard.addView(statusActionText)
+        statusCard.addView(statusAttributesText)
+        contentLayout.addView(statusCard)
 
         val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
 
-        data class RowControls(
-            val descView: TextView,
-            val primarySeg: AppleSegmentedControl?,
-            val secondarySeg: AppleSegmentedControl?,
-            val tertiarySeg: AppleSegmentedControl?
-        )
+        // --- 分组辅助方法 ---
+        fun addSectionHeader(title: String) {
+            val hView = TextView(context).apply {
+                text = title
+                textSize = 13f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setTextColor(Color.parseColor("#6C6C70"))
+                setPadding(dp(context, 4), 0, 0, dp(context, 7))
+            }
+            contentLayout.addView(hView)
+        }
 
-        fun createAppleStyleRow(
-            badgeIcon: String,
-            badgeColor: String,
+        fun createGroupCard(): LinearLayout {
+            return LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(context, 12).toFloat()
+                }
+                setPadding(dp(context, 16), 0, dp(context, 16), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, 0, 0, dp(context, 18))
+                }
+            }
+        }
+
+        fun createDivider(): View {
+            return View(context).apply {
+                setBackgroundColor(Color.parseColor("#E5E5EA"))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+            }
+        }
+
+        // ================= 3. 分组一：自动轮转调度 =================
+        addSectionHeader("自动轮转调度")
+        val autoGroupCard = createGroupCard()
+
+        // --- 条目 1：进阶学力研修 ---
+        val studyRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(context, 13), 0, dp(context, 13))
+        }
+        val studyTextCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+                setMargins(0, 0, dp(context, 10), 0)
+            }
+        }
+        val studyTitle = TextView(context).apply {
+            text = "进阶学力研修"
+            textSize = 16f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(Color.parseColor("#1C1C1E"))
+        }
+        val currentStagePref = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
+        val studySubtitle = TextView(context).apply {
+            text = getSchoolStageDesc(currentStagePref)
+            textSize = 13f
+            setTextColor(Color.parseColor("#8E8E93"))
+            setPadding(0, dp(context, 2), 0, 0)
+        }
+        studyTextCol.addView(studyTitle)
+        studyTextCol.addView(studySubtitle)
+        studyRow.addView(studyTextCol)
+
+        // 学历配置折叠面板 (纯文字分段器)
+        val studyPanel = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(context, 12))
+        }
+
+        // 阶段分段器
+        val stageLabel = TextView(context).apply {
+            text = "学园阶段"
+            textSize = 12f
+            setTextColor(Color.parseColor("#8E8E93"))
+            setPadding(0, dp(context, 4), 0, dp(context, 4))
+        }
+        val stageSeg = AppleSegmentedControl(
+            context,
+            listOf("自适应", "初级", "中级", "高级", "进修"),
+            currentStagePref
+        ) { sel ->
+            prefs.edit().putInt(PreferencesHelper.KEY_SCHOOL_STAGE, sel).commit()
+            studySubtitle.text = getSchoolStageDesc(sel)
+            syncConfig(prefs, engine, context)
+        }
+        studyPanel.addView(stageLabel)
+        studyPanel.addView(stageSeg)
+
+        // 科目分段器
+        val currentSubjPref = prefs.getInt(PreferencesHelper.KEY_COURSE_SUBJECT, 0)
+        val subjLabel = TextView(context).apply {
+            text = "专攻科目 (按官方属性加点)"
+            textSize = 12f
+            setTextColor(Color.parseColor("#8E8E93"))
+            setPadding(0, dp(context, 8), 0, dp(context, 4))
+        }
+        val subjSeg = AppleSegmentedControl(
+            context,
+            listOf("智能轮换", "智力(文科)", "力量(体育)", "魅力(艺术)"),
+            currentSubjPref
+        ) { sel ->
+            prefs.edit().putInt(PreferencesHelper.KEY_COURSE_SUBJECT, sel).commit()
+            syncConfig(prefs, engine, context)
+        }
+        studyPanel.addView(subjLabel)
+        studyPanel.addView(subjSeg)
+
+        // 课时分段器
+        val currentDurPref = prefs.getInt(PreferencesHelper.KEY_COURSE_DURATION, 0)
+        val durLabel = TextView(context).apply {
+            text = "课时时长偏好"
+            textSize = 12f
+            setTextColor(Color.parseColor("#8E8E93"))
+            setPadding(0, dp(context, 8), 0, dp(context, 4))
+        }
+        val durSeg = AppleSegmentedControl(
+            context,
+            listOf("任意课时", "基础短课(10-45m)", "进阶长课(1-2.25h)"),
+            currentDurPref
+        ) { sel ->
+            prefs.edit().putInt(PreferencesHelper.KEY_COURSE_DURATION, sel).commit()
+            syncConfig(prefs, engine, context)
+        }
+        studyPanel.addView(durLabel)
+        studyPanel.addView(durSeg)
+
+        val studyInitialChecked = prefs.getBoolean("key_study", true)
+        val studySwitch = AppleSwitchView(context).apply {
+            setCheckedImmediately(studyInitialChecked)
+            onCheckedChangeListener = { isChecked ->
+                prefs.edit().putBoolean("key_study", isChecked).commit()
+                animateExpandCollapse(studyPanel, isChecked)
+                syncConfig(prefs, engine, context)
+            }
+        }
+        studyRow.addView(studySwitch)
+        autoGroupCard.addView(studyRow)
+        if (!studyInitialChecked) {
+            studyPanel.visibility = View.GONE
+        }
+        autoGroupCard.addView(studyPanel)
+        autoGroupCard.addView(createDivider())
+
+        // --- 条目 2：全自动打工派遣 ---
+        val workRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(context, 13), 0, dp(context, 13))
+        }
+        val workTextCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+                setMargins(0, 0, dp(context, 10), 0)
+            }
+        }
+        val workTitle = TextView(context).apply {
+            text = "全自动打工派遣"
+            textSize = 16f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(Color.parseColor("#1C1C1E"))
+        }
+        val currentWorkTypePref = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
+        val workSubtitle = TextView(context).apply {
+            text = getWorkTypeDesc(currentWorkTypePref)
+            textSize = 13f
+            setTextColor(Color.parseColor("#8E8E93"))
+            setPadding(0, dp(context, 2), 0, 0)
+        }
+        workTextCol.addView(workTitle)
+        workTextCol.addView(workSubtitle)
+        workRow.addView(workTextCol)
+
+        // 打工配置折叠面板 (纯文字分段器)
+        val workPanel = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(context, 12))
+        }
+
+        val workTypeLabel = TextView(context).apply {
+            text = "行业偏好"
+            textSize = 12f
+            setTextColor(Color.parseColor("#8E8E93"))
+            setPadding(0, dp(context, 4), 0, dp(context, 4))
+        }
+        var workDurSeg: AppleSegmentedControl? = null
+        val workTypeSeg = AppleSegmentedControl(
+            context,
+            listOf("演艺文化(高收)", "文职商业", "体力搬运", "三业轮换"),
+            currentWorkTypePref
+        ) { sel ->
+            prefs.edit().putInt(PreferencesHelper.KEY_WORK_TYPE, sel).commit()
+            workSubtitle.text = getWorkTypeDesc(sel)
+            syncConfig(prefs, engine, context)
+            val active = engine ?: HookEntry.globalEngine
+            if (active != null) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    val petId = PetAdventureEngine.cachedPetId ?: active.queryOwnPetAwait().second
+                    if (!petId.isNullOrEmpty()) {
+                        val career = when (sel) { 0 -> 3; 1 -> 1; 2 -> 2; else -> 3 }
+                        val (jCode, jobs) = active.querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = career)
+                        if (jCode == 0 && jobs.isNotEmpty()) {
+                            PetAdventureEngine.cachedWorkJobs = jobs
+                            mainHandler.post {
+                                val j10 = jobs.find { it.costTime.contains("10") }
+                                val j45 = jobs.find { it.costTime.contains("45") }
+                                val j2h = jobs.find { it.costTime.contains("2小时") }
+                                val j4h = jobs.find { it.costTime.contains("4小时") }
+                                val can10 = j10?.canDo ?: true
+                                val can45 = j45?.canDo ?: true
+                                val can2h = j2h?.canDo ?: true
+                                val can4h = j4h?.canDo ?: true
+                                val jobItems = listOf(
+                                    SegmentItem("智能挂机", enabled = true),
+                                    SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未解锁" else null),
+                                    SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未解锁" else null),
+                                    SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未解锁" else null),
+                                    SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未解锁" else null)
+                                )
+                                workDurSeg?.updateItemStates(jobItems)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        workPanel.addView(workTypeLabel)
+        workPanel.addView(workTypeSeg)
+
+        val currentWorkDurPref = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
+        val workDurLabel = TextView(context).apply {
+            text = "打工时长偏好 (官方实测阶梯工时)"
+            textSize = 12f
+            setTextColor(Color.parseColor("#8E8E93"))
+            setPadding(0, dp(context, 8), 0, dp(context, 4))
+        }
+        workDurSeg = AppleSegmentedControl(
+            context,
+            listOf("智能挂机", "10分钟", "45分钟", "2小时", "4小时"),
+            currentWorkDurPref
+        ) { sel ->
+            prefs.edit().putInt(PreferencesHelper.KEY_WORK_DURATION, sel).commit()
+            syncConfig(prefs, engine, context)
+        }
+        workPanel.addView(workDurLabel)
+        workPanel.addView(workDurSeg)
+
+        val workInitialChecked = prefs.getBoolean("key_work", true)
+        val workSwitch = AppleSwitchView(context).apply {
+            setCheckedImmediately(workInitialChecked)
+            onCheckedChangeListener = { isChecked ->
+                prefs.edit().putBoolean("key_work", isChecked).commit()
+                animateExpandCollapse(workPanel, isChecked)
+                syncConfig(prefs, engine, context)
+            }
+        }
+        workRow.addView(workSwitch)
+        autoGroupCard.addView(workRow)
+        if (!workInitialChecked) {
+            workPanel.visibility = View.GONE
+        }
+        autoGroupCard.addView(workPanel)
+        contentLayout.addView(autoGroupCard)
+
+        // ================= 4. 分组二：日常起居与历练 =================
+        addSectionHeader("日常起居与历练")
+        val dailyCard = createGroupCard()
+
+        fun addSimpleToggleRow(
+            card: LinearLayout,
             title: String,
             desc: String,
             prefKey: String,
             defaultVal: Boolean,
-            isLast: Boolean,
-            segmentedItems: List<String>? = null,
-            segmentedPrefKey: String? = null,
-            secondarySegmentedItems: List<String>? = null,
-            secondarySegmentedPrefKey: String? = null,
-            secondaryTitle: String? = null,
-            tertiarySegmentedItems: List<String>? = null,
-            tertiarySegmentedPrefKey: String? = null,
-            tertiaryTitle: String? = null,
-            descMapper: ((Int) -> String)? = null
-        ): RowControls {
+            isLast: Boolean
+        ) {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(context, 11), 0, dp(context, 11))
+                setPadding(0, dp(context, 12), 0, dp(context, 12))
             }
-
-            val iconBadge = TextView(context).apply {
-                text = badgeIcon
-                textSize = 17f
-                gravity = Gravity.CENTER
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor(badgeColor))
-                    cornerRadius = dp(context, 10).toFloat()
-                }
-                layoutParams = LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
-                    setMargins(0, 0, dp(context, 12), 0)
-                }
-            }
-            row.addView(iconBadge)
-
-            val textLayout = LinearLayout(context).apply {
+            val textCol = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
                     setMargins(0, 0, dp(context, 10), 0)
@@ -453,331 +695,117 @@ object QQSettingDialog {
                 typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
                 setTextColor(Color.parseColor("#1C1C1E"))
             }
-            val currentMode = if (segmentedPrefKey != null) prefs.getInt(segmentedPrefKey, 0) else 0
             val dView = TextView(context).apply {
-                text = if (descMapper != null && segmentedPrefKey != null) descMapper(currentMode) else desc
-                textSize = 12.5f
-                setTextColor(Color.parseColor("#6C6C70"))
+                text = desc
+                textSize = 13f
+                setTextColor(Color.parseColor("#8E8E93"))
                 setPadding(0, dp(context, 2), 0, 0)
             }
-            textLayout.addView(tView)
-            textLayout.addView(dView)
-            row.addView(textLayout)
-
-            var secSegControl: AppleSegmentedControl? = null
-            var segControl: AppleSegmentedControl? = null
-            if (segmentedItems != null && segmentedPrefKey != null) {
-                segControl = AppleSegmentedControl(context, segmentedItems, currentMode) { selectedIndex ->
-                    prefs.edit().putInt(segmentedPrefKey, selectedIndex).commit()
-                    descMapper?.let { dView.text = it(selectedIndex) }
-                    syncConfig(prefs, engine, context)
-                    if (segmentedPrefKey == PreferencesHelper.KEY_WORK_TYPE) {
-                        val active = engine ?: HookEntry.globalEngine
-                        if (active != null) {
-                            CoroutineScope(Dispatchers.IO).launch {
-                                val petId = PetAdventureEngine.cachedPetId ?: active.queryOwnPetAwait().second
-                                if (!petId.isNullOrEmpty()) {
-                                    val career = when (selectedIndex) { 0 -> 3; 1 -> 1; 2 -> 2; else -> 3 }
-                                    val (jCode, jobs) = active.querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = career)
-                                    if (jCode == 0 && jobs.isNotEmpty()) {
-                                        PetAdventureEngine.cachedWorkJobs = jobs
-                                        mainHandler.post {
-                                            val j10 = jobs.find { it.costTime.contains("10") }
-                                            val j45 = jobs.find { it.costTime.contains("45") }
-                                            val j2h = jobs.find { it.costTime.contains("2小时") }
-                                            val j4h = jobs.find { it.costTime.contains("4小时") }
-                                            val can10 = j10?.canDo ?: true
-                                            val can45 = j45?.canDo ?: true
-                                            val can2h = j2h?.canDo ?: true
-                                            val can4h = j4h?.canDo ?: true
-                                            val jobItems = listOf(
-                                                SegmentItem("智能挂机", enabled = true),
-                                                SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未解锁" else null),
-                                                SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未解锁" else null),
-                                                SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未解锁" else null),
-                                                SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未解锁" else null)
-                                            )
-                                            secSegControl?.updateItemStates(jobItems)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (secondarySegmentedItems != null && secondarySegmentedPrefKey != null) {
-                val currentSecMode = prefs.getInt(secondarySegmentedPrefKey, 0)
-                secSegControl = AppleSegmentedControl(context, secondarySegmentedItems, currentSecMode) { selectedIndex ->
-                    prefs.edit().putInt(secondarySegmentedPrefKey, selectedIndex).commit()
-                    syncConfig(prefs, engine, context)
-                }
-            }
-
-            var terSegControl: AppleSegmentedControl? = null
-            if (tertiarySegmentedItems != null && tertiarySegmentedPrefKey != null) {
-                val currentTerMode = prefs.getInt(tertiarySegmentedPrefKey, 0)
-                terSegControl = AppleSegmentedControl(context, tertiarySegmentedItems, currentTerMode) { selectedIndex ->
-                    prefs.edit().putInt(tertiarySegmentedPrefKey, selectedIndex).commit()
-                    syncConfig(prefs, engine, context)
-                }
-            }
+            textCol.addView(tView)
+            textCol.addView(dView)
+            row.addView(textCol)
 
             val initialChecked = prefs.getBoolean(prefKey, defaultVal)
             val sw = AppleSwitchView(context).apply {
                 setCheckedImmediately(initialChecked)
                 onCheckedChangeListener = { isChecked ->
                     prefs.edit().putBoolean(prefKey, isChecked).commit()
-                    segControl?.setControlEnabled(isChecked)
-                    secSegControl?.setControlEnabled(isChecked)
-                    terSegControl?.setControlEnabled(isChecked)
                     syncConfig(prefs, engine, context)
                 }
             }
-            segControl?.setControlEnabled(initialChecked)
-            secSegControl?.setControlEnabled(initialChecked)
-            terSegControl?.setControlEnabled(initialChecked)
             row.addView(sw)
-            switchesCard.addView(row)
-
-            if (segControl != null) {
-                val segContainer = LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(context, 48), 0, 0, if (secSegControl != null) dp(context, 6) else dp(context, 10))
-                    addView(segControl)
-                }
-                switchesCard.addView(segContainer)
-            }
-
-            if (secSegControl != null) {
-                val secContainer = LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(context, 48), 0, 0, if (terSegControl != null) dp(context, 6) else dp(context, 10))
-                    if (!secondaryTitle.isNullOrEmpty()) {
-                        val stView = TextView(context).apply {
-                            text = secondaryTitle
-                            textSize = 11.5f
-                            setTextColor(Color.parseColor("#8E8E93"))
-                            setPadding(0, 0, 0, dp(context, 4))
-                        }
-                        addView(stView)
-                    }
-                    addView(secSegControl)
-                }
-                switchesCard.addView(secContainer)
-            }
-
-            if (terSegControl != null) {
-                val terContainer = LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(context, 48), 0, 0, dp(context, 10))
-                    if (!tertiaryTitle.isNullOrEmpty()) {
-                        val ttView = TextView(context).apply {
-                            text = tertiaryTitle
-                            textSize = 11.5f
-                            setTextColor(Color.parseColor("#8E8E93"))
-                            setPadding(0, 0, 0, dp(context, 4))
-                        }
-                        addView(ttView)
-                    }
-                    addView(terSegControl)
-                }
-                switchesCard.addView(terContainer)
-            }
-
+            card.addView(row)
             if (!isLast) {
-                val divider = View(context).apply {
-                    setBackgroundColor(Color.parseColor("#EAEAEC"))
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        1
-                    ).apply {
-                        setMargins(dp(context, 48), 0, 0, 0)
-                    }
-                }
-                switchesCard.addView(divider)
-            }
-            return RowControls(dView, segControl, secSegControl, terSegControl)
-        }
-
-        val studyControls = createAppleStyleRow(
-            badgeIcon = "📖",
-            badgeColor = "#FF9500",
-            title = "进阶学力研修",
-            desc = "学力达标自动学习进阶技能",
-            prefKey = "key_study",
-            defaultVal = true,
-            isLast = false,
-            segmentedItems = listOf("自适应", "初级", "中级", "高级", "进修"),
-            segmentedPrefKey = PreferencesHelper.KEY_SCHOOL_STAGE,
-            secondarySegmentedItems = listOf("智能轮换", "智力(文科)", "力量(体育)", "魅力(艺术)"),
-            secondarySegmentedPrefKey = PreferencesHelper.KEY_COURSE_SUBJECT,
-            secondaryTitle = "专攻科目偏好 (按官方属性加点过滤)",
-            tertiarySegmentedItems = listOf("任意课时", "基础短课(10-45m)", "进阶长课(1-2.25h)"),
-            tertiarySegmentedPrefKey = PreferencesHelper.KEY_COURSE_DURATION,
-            tertiaryTitle = "学园课时偏好 (官方阶梯时长)",
-            descMapper = { stage ->
-                when (stage) {
-                    1 -> "就读初级学园 (初阶课程/基础打底)"
-                    2 -> "就读中级学园 (进阶课程/技能专精)"
-                    3 -> "就读高级学园 (高阶深造/学府殿堂)"
-                    4 -> "就读进修学园 (最高学府/极限强化)"
-                    else -> "智能自适应 (自动就读已解锁最高学园)"
-                }
-            }
-        )
-
-        val workControls = createAppleStyleRow(
-            badgeIcon = "💼",
-            badgeColor = "#34C759",
-            title = "全自动打工派遣",
-            desc = "元气饱满自动参与打工赚金币",
-            prefKey = "key_work",
-            defaultVal = true,
-            isLast = false,
-            segmentedItems = listOf("演艺文化(高收)", "文职商业", "体力搬运", "三业轮换"),
-            segmentedPrefKey = PreferencesHelper.KEY_WORK_TYPE,
-            secondarySegmentedItems = listOf("智能挂机", "10分钟", "45分钟", "2小时", "4小时"),
-            secondarySegmentedPrefKey = PreferencesHelper.KEY_WORK_DURATION,
-            secondaryTitle = "打工时长偏好 (官方实测阶梯工时)",
-            descMapper = { mode ->
-                when (mode) {
-                    0 -> "演艺文化行业 (官方最高收益 · 结界除灵)"
-                    1 -> "文职商业行业 (招牌底稿 · 稳定进账)"
-                    2 -> "体力搬运行业 (守候拼图 · 体能锻炼)"
-                    else -> "三业轮流派遣 (演艺->文职->体力循环)"
-                }
-            }
-        )
-
-        createAppleStyleRow("🍗", "#007AFF", "自动喂食与清洁", "饥饿肮脏时自动进食、洗澡沐浴", "key_care", true, false)
-        createAppleStyleRow("🌲", "#5856D6", "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
-        createAppleStyleRow("💰", "#AF52DE", "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, true)
-
-        root.addView(switchesCard)
-
-        // ================= 3. 即时操作区 (Apple Action Buttons) =================
-        val sectionTitle2 = TextView(context).apply {
-            text = "即时指令"
-            textSize = 13f
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.parseColor("#8E8E93"))
-            setPadding(dp(context, 4), dp(context, 16), 0, dp(context, 8))
-        }
-        root.addView(sectionTitle2)
-
-        val cycleMainButton = Button(context).apply {
-            text = "⚡ 一键执行全套巡检与养成"
-            textSize = 15f
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#007AFF"))
-                cornerRadius = dp(context, 14).toFloat()
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(context, 48)
-            ).apply {
-                setMargins(0, 0, 0, dp(context, 10))
-            }
-            setOnClickListener {
-                triggerAction(context, engine, "cycle")
-                mainHandler.postDelayed({
-                    subtitleView.text = PetAdventureEngine.formatLiveStatusText()
-                }, 1000L)
+                card.addView(createDivider())
             }
         }
-        root.addView(cycleMainButton)
 
-        fun createSecondaryButton(label: String, actionName: String, isFullWidth: Boolean = false): Button {
-            return Button(context).apply {
-                text = label
-                textSize = 13.5f
-                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-                setTextColor(Color.parseColor("#1C1C1E"))
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#F2F2F7"))
-                    cornerRadius = dp(context, 12).toFloat()
-                }
-                layoutParams = if (isFullWidth) {
-                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 42))
-                } else {
-                    LinearLayout.LayoutParams(0, dp(context, 42), 1.0f).apply {
-                        setMargins(dp(context, 4), 0, dp(context, 4), 0)
-                    }
-                }
+        addSimpleToggleRow(dailyCard, "自动进食与沐浴", "饥饿肮脏时自动进食、洗澡沐浴", "key_care", true, false)
+        addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
+        addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, true)
+        contentLayout.addView(dailyCard)
+
+        // ================= 5. 分组三：手动即时指令 (iOS Action List 纯文字) =================
+        addSectionHeader("手动即时指令")
+        val actionCard = createGroupCard()
+
+        fun addActionItem(
+            card: LinearLayout,
+            title: String,
+            colorHex: String = "#1C1C1E",
+            isBold: Boolean = false,
+            isLast: Boolean = false,
+            onClick: () -> Unit
+        ) {
+            val itemRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(context, 14), 0, dp(context, 14))
+                applyTouchSpringEffect(this)
                 setOnClickListener {
-                    triggerAction(context, engine, actionName)
-                    mainHandler.postDelayed({
-                        subtitleView.text = PetAdventureEngine.formatLiveStatusText()
-                    }, 1000L)
+                    onClick()
                 }
             }
-        }
-
-        val row1 = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, dp(context, 8))
-        }
-        row1.addView(createSecondaryButton("🌲 森林探险", "adventure"))
-        row1.addView(createSecondaryButton("🍗 喂食清洁", "care"))
-        root.addView(row1)
-
-        val row2 = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, dp(context, 8))
-        }
-        row2.addView(createSecondaryButton("💼 派遣打工", "work"))
-        row2.addView(createSecondaryButton("📖 进阶学习", "school"))
-        root.addView(row2)
-
-        val row3 = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, dp(context, 8))
-        }
-        row3.addView(createSecondaryButton("💰 结算并领取探险收益", "settle", isFullWidth = true))
-        root.addView(row3)
-
-        // 强力即时召回按钮 (官方 0x9760_1 中断召回)
-        val recallButton = Button(context).apply {
-            text = "🚨 立即召回宠物回家 (中断学习/打工)"
-            textSize = 14f
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#FF3B30"))
-                cornerRadius = dp(context, 12).toFloat()
+            val tView = TextView(context).apply {
+                text = title
+                textSize = 15.5f
+                typeface = if (isBold) Typeface.create("sans-serif-medium", Typeface.BOLD) else Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setTextColor(Color.parseColor(colorHex))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
             }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(context, 44)
-            ).apply {
-                setMargins(0, 0, 0, dp(context, 14))
-            }
-            setOnClickListener {
-                triggerAction(context, engine, "recall")
-                mainHandler.postDelayed({
-                    subtitleView.text = PetAdventureEngine.formatLiveStatusText()
-                }, 1000L)
+            itemRow.addView(tView)
+            card.addView(itemRow)
+            if (!isLast) {
+                card.addView(createDivider())
             }
         }
-        root.addView(recallButton)
 
-        // ================= 4. 底部外链 =================
-        val bottomBar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(context, 4), 0, 0)
+        addActionItem(actionCard, "立即执行全套巡检与养成", colorHex = "#007AFF", isBold = true, isLast = false) {
+            triggerAction(context, engine, "cycle")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
         }
+        addActionItem(actionCard, "立即派遣打工", colorHex = "#1C1C1E", isLast = false) {
+            triggerAction(context, engine, "work")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
+        addActionItem(actionCard, "立即启程学习", colorHex = "#1C1C1E", isLast = false) {
+            triggerAction(context, engine, "school")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
+        addActionItem(actionCard, "立即野外探险", colorHex = "#1C1C1E", isLast = false) {
+            triggerAction(context, engine, "adventure")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
+        addActionItem(actionCard, "立即结算探险收益", colorHex = "#1C1C1E", isLast = false) {
+            triggerAction(context, engine, "settle")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
+        addActionItem(actionCard, "立即召回宠物回家 (中断当前打工/学习)", colorHex = "#FF3B30", isBold = true, isLast = true) {
+            triggerAction(context, engine, "recall")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
+        contentLayout.addView(actionCard)
 
-        val openAppText = TextView(context).apply {
-            text = "进入伴侣独立 App 管理更多细节 →"
-            textSize = 13f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Color.parseColor("#8E8E93"))
-            setPadding(dp(context, 8), dp(context, 6), dp(context, 8), dp(context, 6))
+        // ================= 6. 分组四：更多 =================
+        addSectionHeader("更多")
+        val moreCard = createGroupCard()
+        val moreRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(context, 14), 0, dp(context, 14))
+            applyTouchSpringEffect(this)
             setOnClickListener {
                 try {
                     val intent = Intent().apply {
@@ -788,101 +816,113 @@ object QQSettingDialog {
                 } catch (_: Throwable) {}
             }
         }
-        bottomBar.addView(openAppText)
-        root.addView(bottomBar)
-
-        val scrollView = ScrollView(context).apply {
-            addView(root)
-            isVerticalScrollBarEnabled = false
+        val moreTitle = TextView(context).apply {
+            text = "进入伴侣独立 App 管理更多细节"
+            textSize = 15f
+            setTextColor(Color.parseColor("#1C1C1E"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
         }
+        val moreArrow = TextView(context).apply {
+            text = "›"
+            textSize = 18f
+            setTextColor(Color.parseColor("#C7C7CC"))
+        }
+        moreRow.addView(moreTitle)
+        moreRow.addView(moreArrow)
+        moreCard.addView(moreRow)
+        contentLayout.addView(moreCard)
 
-        dialogInstance = Dialog(context, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar).apply {
-            setContentView(scrollView)
+        // 外层滚动
+        val scrollView = ScrollView(context).apply {
+            addView(contentLayout)
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        }
+        fullRoot.addView(scrollView)
+
+        // 原生二级设置页面 Dialog
+        dialogInstance = object : Dialog(context, android.R.style.Theme_DeviceDefault_Light_NoActionBar) {
+            @Deprecated("Deprecated in Java")
+            override fun onBackPressed() {
+                dismissWithAnimation(fullRoot, this)
+            }
+        }.apply {
+            setContentView(fullRoot)
             setCancelable(true)
             setCanceledOnTouchOutside(true)
         }
 
-        // 挂载秒级平滑倒计时心跳，只要弹窗在前台，每秒计算一次并自然递减
+        dialogInstance.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.parseColor("#F2F2F7")))
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            setDimAmount(0f)
+            attributes = attributes?.apply {
+                dimAmount = 0f
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+                statusBarColor = Color.parseColor("#F2F2F7")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                @Suppress("DEPRECATION")
+                decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            }
+        }
+
+        // 挂载秒级倒计时心跳
         val tickerRunnable = object : Runnable {
             override fun run() {
-                val liveText = PetAdventureEngine.formatLiveStatusText()
-                subtitleView.text = liveText
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+                val d = PetAdventureEngine.cachedSchoolDetails
+                if (d != null && d.code == 0) {
+                    statusAttributesText.text = "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}"
+                }
                 mainHandler.postDelayed(this, 1000L)
             }
         }
         mainHandler.post(tickerRunnable)
+        dialogInstance.setOnDismissListener {
+            mainHandler.removeCallbacks(tickerRunnable)
+        }
 
-        val applyUnlockStates: (QQPetDirectBridge.SecondMapDetails?, List<QQPetDirectBridge.SelectEvent>?, List<QQPetDirectBridge.SelectEvent>?) -> Unit = { details, courses, jobs ->
+        // 应用账号数据解锁状态与置灰拦截
+        val applyUnlockStates: (QQPetDirectBridge.SecondMapDetails?, List<QQPetDirectBridge.SelectEvent>?, List<QQPetDirectBridge.SelectEvent>?) -> Unit = { details, _, jobs ->
             if (details != null && details.code == 0) {
                 val curStage = details.currentStage
                 val stageItems = mutableListOf<SegmentItem>()
-                // 0: 自适应
                 stageItems.add(SegmentItem("自适应", enabled = true))
-
-                // 1: 初级
-                val s1 = details.stages.find { it.stage == 1 }
-                val s1Grad = curStage > 1 || (s1?.isGraduated == true)
-                val s1Enable = curStage == 1
-                stageItems.add(
-                    SegmentItem(
-                        if (s1Grad) "初级(已毕业)" else "初级",
-                        enabled = s1Enable,
-                        disabledTip = if (s1Grad) "初级学园已毕业（腾讯规则禁止重复就读）" else if (!s1Enable) "初级学园尚未解锁" else null
-                    )
-                )
-
-                // 2: 中级
-                val s2 = details.stages.find { it.stage == 2 }
-                val s2Grad = curStage > 2 || (s2?.isGraduated == true)
-                val s2Enable = curStage == 2
-                stageItems.add(
-                    SegmentItem(
-                        if (s2Grad) "中级(已毕业)" else if (curStage < 2) "中级(未解锁)" else "中级",
-                        enabled = s2Enable,
-                        disabledTip = if (s2Grad) "中级学园已毕业（腾讯规则禁止重复就读）" else if (curStage < 2) "中级学园尚未解锁（需先完成初级修习）" else null
-                    )
-                )
-
-                // 3: 高级
-                val s3 = details.stages.find { it.stage == 3 }
-                val s3Grad = curStage > 3 || (s3?.isGraduated == true)
-                val s3Enable = curStage == 3
-                stageItems.add(
-                    SegmentItem(
-                        if (s3Grad) "高级(已毕业)" else if (curStage < 3) "高级(未解锁)" else "高级",
-                        enabled = s3Enable,
-                        disabledTip = if (s3Grad) "高级学园已毕业" else if (curStage < 3) "高级学园尚未解锁（需先完成中级深造）" else null
-                    )
-                )
-
-                // 4: 进修
-                val s4Enable = curStage == 4
-                stageItems.add(
-                    SegmentItem(
-                        if (!s4Enable) "进修(未解锁)" else "进修",
-                        enabled = s4Enable,
-                        disabledTip = if (!s4Enable) "进修学园尚未解锁（需先完成高级学府深造）" else null
-                    )
-                )
-
-                studyControls.primarySeg?.updateItemStates(stageItems)
-
-                val curStageName = when (curStage) {
-                    1 -> "初级学园"
-                    2 -> "中级学园"
-                    3 -> "高级学园"
-                    4 -> "进修学园"
-                    else -> "第${curStage}阶段学园"
+                val stageNames = listOf("初级", "中级", "高级", "进修")
+                for (s in 1..4) {
+                    val sInfo = details.stages.find { it.stage == s }
+                    val name = stageNames[s - 1]
+                    val isGrad = sInfo?.isGraduated == true
+                    val isLocked = (sInfo?.limitStatus ?: 0) != 0 && (sInfo?.limitStatus ?: 0) != 2
+                    val enabled = !isGrad && !isLocked
+                    val title = when {
+                        isGrad -> "$name(已毕业)"
+                        isLocked -> "$name(未解锁)"
+                        else -> name
+                    }
+                    val tip = when {
+                        isGrad -> "${name}学园已毕业（腾讯规则禁止重复就读）"
+                        isLocked -> "${name}学园尚未解锁（需先完成前序学业修习）"
+                        else -> null
+                    }
+                    stageItems.add(SegmentItem(title, enabled = enabled, disabledTip = tip))
                 }
-                val attrPart = if (details.power > 0 || details.intel > 0 || details.charm > 0) {
-                    " · 力量${details.power} 智力${details.intel} 魅力${details.charm}"
-                } else ""
-                val savedStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
-                studyControls.descView.text = if (savedStage == 0) {
-                    "智能自适应: 当前就读 $curStageName$attrPart"
-                } else {
-                    "已锁定 $curStageName (已解锁最高学府)$attrPart"
+                stageSeg.updateItemStates(stageItems)
+
+                if (currentStagePref == 0) {
+                    val stageTitle = when (curStage) {
+                        1 -> "初级学园"
+                        2 -> "中级学园"
+                        3 -> "高级学园"
+                        4 -> "进修学园"
+                        else -> "高级学园"
+                    }
+                    studySubtitle.text = "已锁定 $stageTitle (已解锁最高学府)"
                 }
+                statusAttributesText.text = "小宠资质 · 力量 ${details.power}  智力 ${details.intel}  魅力 ${details.charm}"
             }
 
             if (!jobs.isNullOrEmpty()) {
@@ -890,91 +930,148 @@ object QQSettingDialog {
                 val j45 = jobs.find { it.costTime.contains("45") }
                 val j2h = jobs.find { it.costTime.contains("2小时") }
                 val j4h = jobs.find { it.costTime.contains("4小时") }
-
                 val can10 = j10?.canDo ?: true
                 val can45 = j45?.canDo ?: true
                 val can2h = j2h?.canDo ?: true
                 val can4h = j4h?.canDo ?: true
-
                 val jobItems = listOf(
                     SegmentItem("智能挂机", enabled = true),
-                    SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未解锁" else null),
-                    SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未解锁" else null),
-                    SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未解锁" else null),
-                    SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未解锁" else null)
+                    SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未满足解锁条件" else null),
+                    SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未满足解锁条件" else null),
+                    SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未满足解锁条件" else null),
+                    SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未满足解锁条件" else null)
                 )
-                workControls.secondarySeg?.updateItemStates(jobItems)
-
-                val unlockedCount = listOf(can10, can45, can2h, can4h).count { it }
-                val workSummary = if (unlockedCount == 4) "全部4阶工时均已解锁" else "已解锁 $unlockedCount/4 阶工时"
-                val curType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
-                val typeName = when (curType) { 0 -> "演艺文化(高收)"; 1 -> "文职商业"; 2 -> "体力搬运"; else -> "三业轮换" }
-                workControls.descView.text = "$typeName · $workSummary (极速/短工/中工/长工)"
+                workDurSeg?.updateItemStates(jobItems)
             }
         }
 
-        // 立即应用内存中已有的解锁缓存（0ms 秒开无白屏）
-        applyUnlockStates(
-            PetAdventureEngine.cachedSchoolDetails,
-            PetAdventureEngine.cachedSchoolCourses,
-            PetAdventureEngine.cachedWorkJobs
-        )
+        applyUnlockStates(PetAdventureEngine.cachedSchoolDetails, PetAdventureEngine.cachedSchoolCourses, PetAdventureEngine.cachedWorkJobs)
 
-        // 弹窗拉起时即刻同步服务端最新进度与倒计时
         val activeEngine = engine ?: HookEntry.globalEngine
         if (activeEngine != null) {
-            activeEngine.startBackgroundLoop(context.applicationContext)
             CoroutineScope(Dispatchers.IO).launch {
                 val petId = PetAdventureEngine.cachedPetId ?: activeEngine.queryOwnPetAwait().second
                 if (!petId.isNullOrEmpty()) {
-                    // 率先抓取账号全量学业与打工解锁数据
-                    val (details, courses, jobs) = activeEngine.preloadAccountDataAwait(petId)
+                    val (d, c, j) = activeEngine.preloadAccountDataAwait(petId)
                     mainHandler.post {
-                        applyUnlockStates(details, courses, jobs)
-                    }
-
-                    val status = activeEngine.queryStoryStatusAwait(petId)
-                    if (status.code == 0) {
-                        val rem = status.remaining
-                        if (!status.storyId.isNullOrEmpty() && rem != null && rem > 0) {
-                            PetAdventureEngine.lastActiveStoryId = status.storyId
-                            PetAdventureEngine.currentTaskEndTimeMillis = System.currentTimeMillis() + rem * 1000L
-                            PetAdventureEngine.currentTaskTypeName = when {
-                                status.storyId.startsWith("6100") -> "进阶修习中"
-                                status.storyId.startsWith("6400") -> "小镇打工中"
-                                status.storyId.startsWith("6700") -> "森林探险中"
-                                else -> "任务执行中"
-                            }
-                        } else {
-                            PetAdventureEngine.currentTaskEndTimeMillis = 0L
-                            PetAdventureEngine.currentStatusText = "全自动守护中 · 空闲待命"
-                        }
-                        mainHandler.post {
-                            subtitleView.text = PetAdventureEngine.formatLiveStatusText()
-                        }
+                        applyUnlockStates(d, c, j)
                     }
                 }
             }
         }
 
-        dialogInstance.setOnDismissListener {
-            mainHandler.removeCallbacks(tickerRunnable)
-        }
-
-        dialogInstance.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            decorView.setBackgroundColor(Color.TRANSPARENT)
-            decorView.setPadding(0, 0, 0, 0)
-            attributes = attributes?.apply {
-                dimAmount = 0.5f
-            }
-            setLayout(
-                (context.resources.displayMetrics.widthPixels * 0.90).toInt(),
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
-
+        // 打开全屏二级页面：从屏幕右侧平滑滑入 (Spring Slide-in)
         dialogInstance.show()
+        val screenWidth = context.resources.displayMetrics.widthPixels.toFloat()
+        fullRoot.translationX = screenWidth
+        fullRoot.animate()
+            .translationX(0f)
+            .setDuration(280)
+            .setInterpolator(DecelerateInterpolator(2.0f))
+            .start()
+    }
+
+    /**
+     * 退出二级页面：平滑向右滑出 (Spring Slide-out)
+     */
+    private fun dismissWithAnimation(rootView: View, dialog: Dialog?) {
+        val screenWidth = rootView.context.resources.displayMetrics.widthPixels.toFloat()
+        rootView.animate()
+            .translationX(screenWidth)
+            .setDuration(220)
+            .setInterpolator(DecelerateInterpolator(2.0f))
+            .withEndAction {
+                try {
+                    dialog?.dismiss()
+                } catch (_: Throwable) {}
+            }
+            .start()
+    }
+
+    /**
+     * 为视图应用 iOS 物理触控瞬时缩放反馈 (Response: kill latency)
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun applyTouchSpringEffect(view: View) {
+        view.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(70).start()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(160)
+                        .setInterpolator(DecelerateInterpolator(2.0f)).start()
+                }
+            }
+            false
+        }
+    }
+
+    /**
+     * 子面板平滑折叠/展开动画 (Interruptible Spring Animation)
+     */
+    private fun animateExpandCollapse(view: View, expand: Boolean) {
+        if (expand) {
+            view.visibility = View.VISIBLE
+            view.alpha = 0f
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(view.resources.displayMetrics.widthPixels, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            val targetHeight = if (view.measuredHeight > 0) view.measuredHeight else dp(view.context, 160)
+            view.layoutParams.height = 0
+            val anim = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 240
+                interpolator = DecelerateInterpolator(1.8f)
+                addUpdateListener { va ->
+                    val f = va.animatedValue as Float
+                    view.layoutParams.height = (targetHeight * f).toInt()
+                    view.alpha = f
+                    view.requestLayout()
+                    if (f >= 1.0f) {
+                        view.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    }
+                }
+            }
+            anim.start()
+        } else {
+            val startHeight = view.height
+            val anim = ValueAnimator.ofFloat(1f, 0f).apply {
+                duration = 200
+                interpolator = DecelerateInterpolator(1.8f)
+                addUpdateListener { va ->
+                    val f = va.animatedValue as Float
+                    view.layoutParams.height = (startHeight * f).toInt()
+                    view.alpha = f
+                    view.requestLayout()
+                    if (f <= 0f) {
+                        view.visibility = View.GONE
+                        view.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    }
+                }
+            }
+            anim.start()
+        }
+    }
+
+    private fun getSchoolStageDesc(stage: Int): String {
+        return when (stage) {
+            1 -> "就读初级学园 · 初阶打底"
+            2 -> "就读中级学园 · 技能专精"
+            3 -> "就读高级学园 · 高阶深造"
+            4 -> "就读进修学园 · 最高学府"
+            else -> "智能自适应 · 自动就读已解锁最高学府"
+        }
+    }
+
+    private fun getWorkTypeDesc(mode: Int): String {
+        return when (mode) {
+            0 -> "演艺文化行业 · 最高收益"
+            1 -> "文职商业行业 · 稳定收益"
+            2 -> "体力搬运行业 · 体能锻炼"
+            else -> "三行业循环派遣"
+        }
     }
 
     private fun triggerAction(context: Context, engine: PetAdventureEngine?, action: String) {
