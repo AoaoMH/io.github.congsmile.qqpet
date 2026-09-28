@@ -151,7 +151,7 @@ object QQSettingInjector {
                                         }
                                     }
                                     val newGroup = c.newInstance(*args)
-                                    // 插入在第 2 个位置（与模了个块和XAutoDaily并列）
+                                    // 插入在第 2 个位置（紧随账号安全等关键项之后）
                                     groupList.add(2, newGroup)
                                     XposedBridge.log("[$TAG] 🎯 完美插入「Q宠后台伴侣」专属卡片！")
                                     break
