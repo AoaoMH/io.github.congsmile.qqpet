@@ -722,6 +722,7 @@ object QQSettingDialog {
         }
 
         addSimpleToggleRow(dailyCard, "自动进食与沐浴", "饥饿肮脏时自动进食、洗澡沐浴", "key_care", true, false)
+        addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
         addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
         addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, true)
         contentLayout.addView(dailyCard)
@@ -850,17 +851,20 @@ object QQSettingDialog {
             setPadding(0, dp(context, 14), 0, dp(context, 14))
             applyTouchSpringEffect(this)
             setOnClickListener {
+                val groupUin = "1087942084"
+                val nativeUri = "mqqapi://card/show_pslcard?src_type=internal&version=1&uin=$groupUin&card_type=group&source=qrcode"
+                val webUrl = "https://qm.qq.com/q/FY6w7PMH2c"
                 try {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://qm.qq.com/q/FY6w7PMH2c")).apply {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(nativeUri)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(intent)
                 } catch (_: Throwable) {
                     try {
-                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://qm.qq.com/q/FY6w7PMH2c")).apply {
+                        val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(webUrl)).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                        context.startActivity(browserIntent)
+                        context.startActivity(webIntent)
                     } catch (_: Throwable) {}
                 }
             }
@@ -1143,6 +1147,7 @@ object QQSettingDialog {
         val care = prefs.getBoolean("key_care", true)
         val adv = prefs.getBoolean("key_adventure", false)
         val settle = prefs.getBoolean("key_settle", true)
+        val likeBack = prefs.getBoolean(PreferencesHelper.KEY_LIKE_BACK, true)
         val studyMode = prefs.getInt("key_study_mode", 0)
         val workMode = prefs.getInt("key_work_mode", 0)
         val schoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
@@ -1151,9 +1156,9 @@ object QQSettingDialog {
         val workType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
         val workDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
 
-        HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
+        HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
         if (engine != null && engine !== HookEntry.globalEngine) {
-            engine.updateConfig(study, work, care, adv, settle, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
+            engine.updateConfig(study, work, care, adv, settle, likeBack, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
         }
         val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
             setPackage("com.tencent.mobileqq")
@@ -1162,6 +1167,7 @@ object QQSettingDialog {
             putExtra("extra_care", care)
             putExtra("extra_adventure", adv)
             putExtra("extra_settle", settle)
+            putExtra("extra_like_back", likeBack)
             putExtra("extra_study_mode", studyMode)
             putExtra("extra_work_mode", workMode)
             putExtra("extra_school_stage", schoolStage)

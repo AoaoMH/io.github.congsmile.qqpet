@@ -11,9 +11,9 @@ android {
         applicationId = "com.copilot.qqpet"
         minSdk = 26
         targetSdk = 34
-        versionCode = 30
+        versionCode = 31
         // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.29)
-        versionName = "1.0.29"
+        versionName = "1.0.30"
     }
 
     buildTypes {

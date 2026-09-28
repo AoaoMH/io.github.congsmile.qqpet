@@ -44,6 +44,7 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         @Volatile var enableCare = true
         @Volatile var enableAdventure = false
         @Volatile var enableSettle = true
+        @Volatile var enableLikeBack = true
 
         // 实时状态文本与轮转游标
         @Volatile var currentStatusText = "全自动守护中 · 一刻不停三维轮转"
@@ -64,6 +65,7 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         @Volatile var prefCustomWorkDuration = 0 // 0: 智能时长, 1: 10分钟(极速), 2: 45分钟(短工), 3: 2小时(中工), 4: 4小时(长工)
 
         @Volatile var lastCareTimeMillis: Long = 0L
+        @Volatile var lastLikeBackTimeMillis: Long = 0L
 
         // 动态嗅探学习到的最新课程与工种（持久化）
         @Volatile var learnedStudySubEvent: Long? = null
@@ -197,6 +199,7 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
             enableCare = prefs.getBoolean("key_care", true)
             enableAdventure = prefs.getBoolean("key_adventure", false)
             enableSettle = prefs.getBoolean("key_settle", true)
+            enableLikeBack = prefs.getBoolean(PreferencesHelper.KEY_LIKE_BACK, true)
             prefStudyMode = prefs.getInt("key_study_mode", 0)
             prefWorkMode = prefs.getInt("key_work_mode", 0)
             prefCustomSchoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
@@ -248,6 +251,7 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         care: Boolean,
         adventure: Boolean,
         settle: Boolean,
+        likeBack: Boolean = enableLikeBack,
         studyMode: Int = prefStudyMode,
         workMode: Int = prefWorkMode,
         schoolStage: Int = prefCustomSchoolStage,
@@ -261,6 +265,7 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         enableCare = care
         enableAdventure = adventure
         enableSettle = settle
+        enableLikeBack = likeBack
         prefStudyMode = studyMode
         prefWorkMode = workMode
         prefCustomSchoolStage = schoolStage
@@ -384,6 +389,15 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
                 currentTaskEndTimeMillis = 0L
             }
             delay(2000L)
+        }
+
+        // 4.5 自动回踩访客 (互相踩踩)：周期性检查来踩访客并执行回踩
+        if (enableLikeBack) {
+            val now = System.currentTimeMillis()
+            if (now - lastLikeBackTimeMillis > 5 * 60 * 1000L) { // 每5分钟巡检一次来踩访客
+                lastLikeBackTimeMillis = now
+                executeAutoLikeBack(context)
+            }
         }
 
         // 4. 自动照顾：喂食 + 洗澡 (周期性守护，无论是否在任务中，均定期进行照顾补充体力与清洁度)
@@ -1111,6 +1125,36 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
         } catch (_: Throwable) {
             Pair(-99, emptyList())
         }
+
+
+    private suspend fun executeAutoLikeBack(context: Context) {
+        try {
+            val (code, members) = fetchLikeListAwait()
+            if (code == 0 && members.isNotEmpty()) {
+                val toLike = members.filter { it.canLikeBack }
+                if (toLike.isNotEmpty()) {
+                    sendLog(context, "🐾 [自动互踩] 发现 ${toLike.size} 位好友来踩过我家且尚未回踩，开始自动回踩...")
+                    var successCount = 0
+                    for (m in toLike) {
+                        val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
+                        val (lCode, _) = sendLikeAwait(m.uin)
+                        if (lCode == 0) {
+                            successCount++
+                            sendLog(context, "✅ [自动互踩] 成功回踩好友 $name！")
+                        } else {
+                            Log.i(TAG, "自动回踩好友 $name 回包: code=$lCode")
+                        }
+                        delay(1200L)
+                    }
+                    if (successCount > 0) {
+                        sendLog(context, "🎉 [自动互踩] 本轮自动回踩完成，成功回踩 $successCount 位好友")
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "自动回踩巡检异常: ${t.message}")
+        }
+    }
 
     suspend fun fetchLikeListAwait(extra: String = "", timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, List<QQPetDirectBridge.LikeMember>> =
         try {
