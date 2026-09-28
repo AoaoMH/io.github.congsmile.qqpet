@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "QQPetCopilot-LSPosed"
+rootProject.name = "QPetCompanion"
 include(":app")
