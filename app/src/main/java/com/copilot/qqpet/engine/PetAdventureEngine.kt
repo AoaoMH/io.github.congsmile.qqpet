@@ -802,16 +802,45 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
                     } else {
                         sendLog(context, "🚨 [召回指令] 正在向官方发送提前召回指令 (StoryID: $activeSid)...")
                         val (code, errMsg) = recallStoryAwait(activeSid, petId)
-                        if (code == 0) {
-                            lastActiveStoryId = null
-                            currentTaskEndTimeMillis = 0L
-                            currentTaskTypeName = "已召回回家 (空闲)"
-                            currentStatusText = "已安全召回回家 · 待命"
-                            sendLog(context, "✅ [召回成功] 宠物已提前回家！当前状态已重置为空闲")
-                        } else {
-                            sendLog(context, "⚠️ [召回失败] 服务端返回 code=$code, 说明: ${errMsg ?: "未知"}")
-                        }
+                       if (code == 0) {
+                           lastActiveStoryId = null
+                           currentTaskEndTimeMillis = 0L
+                           currentTaskTypeName = "已召回回家 (空闲)"
+                           currentStatusText = "已安全召回回家 · 待命"
+                           sendLog(context, "✅ [召回成功] 宠物已提前回家！当前状态已重置为空闲")
+                       } else {
+                           sendLog(context, "⚠️ [召回失败] 服务端返回 code=$code, 说明: ${errMsg ?: "未知"}")
+                       }
+                   }
+               }
+                "like_back" -> {
+                    val petId = ensurePetId(context) ?: return@launch
+                    sendLog(context, "🐾 [互踩实测] 正在拉取来踩过我家的小伙伴访客记录...")
+                    val (code, members) = fetchLikeListAwait()
+                    if (code != 0) {
+                        sendLog(context, "❌ [互踩实测] 拉取访客列表失败: code=$code")
+                        return@launch
                     }
+                    if (members.isEmpty()) {
+                        sendLog(context, "ℹ️ [互踩实测] 暂无访客来踩记录")
+                        return@launch
+                    }
+                    val toLike = members.filter { it.canLikeBack }
+                    sendLog(context, "📊 [互踩实测] 成功拉取到 ${members.size} 条来访记录，其中 ${toLike.size} 位好友尚未回踩")
+                    var successCount = 0
+                    for (m in toLike) {
+                        val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
+                        sendLog(context, "🐾 [互踩实测] 正在回踩好友: $name (${m.uin})...")
+                        val (lCode, _) = sendLikeAwait(m.uin)
+                        if (lCode == 0) {
+                            successCount++
+                            sendLog(context, "✅ [互踩实测] 成功回踩好友 $name！")
+                        } else {
+                            sendLog(context, "ℹ️ [互踩实测] 回踩好友 $name 回包: code=$lCode")
+                        }
+                        delay(1200L)
+                    }
+                    sendLog(context, "🎉 [互踩实测] 回踩任务完成！共成功回踩 $successCount 位好友")
                 }
                 "inspect" -> {
                     val petId = ensurePetId(context) ?: return@launch
@@ -1081,6 +1110,32 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
             } ?: Pair(-99, emptyList())
         } catch (_: Throwable) {
             Pair(-99, emptyList())
+        }
+
+    suspend fun fetchLikeListAwait(extra: String = "", timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, List<QQPetDirectBridge.LikeMember>> =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.fetchLikeList(extra) { code, members, _, _, _, _ ->
+                        if (cont.isActive) cont.resume(Pair(code, members))
+                    }
+                }
+            } ?: Pair(-99, emptyList())
+        } catch (_: Throwable) {
+            Pair(-99, emptyList())
+        }
+
+    suspend fun sendLikeAwait(targetUin: Long, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, String?> =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.sendLike(targetUin) { code, _, err ->
+                        if (cont.isActive) cont.resume(Pair(code, err))
+                    }
+                }
+            } ?: Pair(-99, "超时")
+        } catch (t: Throwable) {
+            Pair(-99, t.message)
         }
 
     fun sendLog(context: Context, message: String) {

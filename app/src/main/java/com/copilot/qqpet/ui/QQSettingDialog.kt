@@ -6,6 +6,7 @@ import android.app.Activity
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -790,6 +791,12 @@ object QQSettingDialog {
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
+        addActionItem(actionCard, "立即回踩访客 (互相踩踩)", colorHex = "#007AFF", isLast = false) {
+            triggerAction(context, engine, "like_back")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
         addActionItem(actionCard, "立即召回宠物回家 (中断当前打工/学习)", colorHex = "#FF3B30", isBold = true, isLast = true) {
             triggerAction(context, engine, "recall")
             mainHandler.postDelayed({
@@ -830,6 +837,50 @@ object QQSettingDialog {
         moreRow.addView(moreTitle)
         moreRow.addView(moreArrow)
         moreCard.addView(moreRow)
+
+        val moreDivider = View(context).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                leftMargin = dp(context, 16)
+            }
+            setBackgroundColor(Color.parseColor("#E5E5EA"))
+        }
+        val groupRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(context, 14), 0, dp(context, 14))
+            applyTouchSpringEffect(this)
+            setOnClickListener {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://qm.qq.com/q/FY6w7PMH2c")).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                } catch (_: Throwable) {
+                    try {
+                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://qm.qq.com/q/FY6w7PMH2c")).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(browserIntent)
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
+        val groupTitle = TextView(context).apply {
+            text = "进入官方反馈交流群"
+            textSize = 15f
+            setTextColor(Color.parseColor("#1C1C1E"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        val groupArrow = TextView(context).apply {
+            text = "›"
+            textSize = 18f
+            setTextColor(Color.parseColor("#C7C7CC"))
+        }
+        groupRow.addView(groupTitle)
+        groupRow.addView(groupArrow)
+
+        moreCard.addView(moreDivider)
+        moreCard.addView(groupRow)
         contentLayout.addView(moreCard)
 
         // 外层滚动

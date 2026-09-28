@@ -40,6 +40,16 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         val charm: Long = 0L
     )
 
+    data class LikeMember(
+        val uin: Long,
+        val nick: String,
+        val headerUrl: String,
+        val timestamp: Long,
+        val desc: String,
+        val canLikeBack: Boolean,
+        val petId: String = ""
+    )
+
     companion object {
         private const val TAG = "QQPetDirectBridge"
         private const val DELEGATE_CLASS = "com.tencent.mobileqq.qqpet.delegate.l"
@@ -596,6 +606,98 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                 Log.w(TAG, "querySelectEvents 失败: code=$code, err=$errorMsg")
                 callback(code, emptyList(), data, errorMsg)
             }
+        }
+    }
+
+    /**
+     * 拉取踩踩/访客记录（谁踩了我，官方 0x985e_0 / 39006 协议）
+     */
+    fun fetchLikeList(
+        extra: String = "",
+        callback: (code: Int, members: List<LikeMember>, hasMore: Boolean, nextExtra: String, rawData: ByteArray?, errorMsg: String?) -> Unit
+    ) {
+        val body = ProtoWire.message()
+            .writeString(1, extra)
+            .toByteArray()
+
+        sendOidb("OidbSvcTrpcTcp.0x985e_0", 39006, 0, body) { code, data, errorMsg ->
+            if (code == 0 && data != null) {
+                val memberList = mutableListOf<LikeMember>()
+                val itemBytesList = ProtoWire.allBytes(data, 1)
+                for (itemBytes in itemBytesList) {
+                    val userProfileBytes = ProtoWire.firstBytes(itemBytes, 1)
+                    val uin = ProtoWire.firstVarint(userProfileBytes, 1) ?: 0L
+                    val nick = ProtoWire.firstString(userProfileBytes, 2) ?: ""
+                    val headerUrl = ProtoWire.firstString(userProfileBytes, 3) ?: ""
+                    val ts = ProtoWire.firstVarint(itemBytes, 2) ?: 0L
+
+                    val descBytes = ProtoWire.firstBytes(itemBytes, 3)
+                    val contentBytesList = ProtoWire.allBytes(descBytes, 1)
+                    val descSb = StringBuilder()
+                    for (cBytes in contentBytesList) {
+                        val text = ProtoWire.firstString(cBytes, 1) ?: ""
+                        descSb.append(text)
+                    }
+
+                    val friendPetBytes = ProtoWire.firstBytes(itemBytes, 7)
+                    var petId = ""
+                    var canLikeBack = true
+                    if (friendPetBytes != null) {
+                        val profileBytes = ProtoWire.firstBytes(friendPetBytes, 1)
+                        petId = ProtoWire.firstString(profileBytes, 101) ?: ""
+                        canLikeBack = (ProtoWire.firstVarint(friendPetBytes, 8) ?: 0L) != 1L
+                    }
+                    if (uin > 0L) {
+                        memberList.add(LikeMember(uin, nick, headerUrl, ts, descSb.toString(), canLikeBack, petId))
+                    }
+                }
+                val hasMore = (ProtoWire.firstVarint(data, 2) ?: 0L) != 0L
+                val nextExtra = ProtoWire.firstString(data, 5) ?: ""
+                Log.i(TAG, "fetchLikeList 回包: 解析到 ${memberList.size} 位来踩访客, hasMore=$hasMore")
+                callback(0, memberList, hasMore, nextExtra, data, null)
+            } else {
+                Log.w(TAG, "fetchLikeList 失败: code=$code, err=$errorMsg")
+                callback(code, emptyList(), false, "", data, errorMsg)
+            }
+        }
+    }
+
+    /**
+     * 发送踩踩/回踩指定好友宠物（官方 0x985b_0 / 39003 协议）
+     */
+    fun sendLike(
+        targetUin: Long,
+        callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit
+    ) {
+        val body = ProtoWire.message()
+            .writeVarint(1, targetUin)
+            .toByteArray()
+
+        sendOidb("OidbSvcTrpcTcp.0x985b_0", 39003, 0, body) { code, data, errorMsg ->
+            Log.i(TAG, "sendLike 踩踩目标 $targetUin 结果: code=$code, err=$errorMsg")
+            callback(code, data, errorMsg)
+        }
+    }
+
+    /**
+     * 查询某好友的踩踩状态（官方 0x985c_0 / 39004 协议）
+     */
+    fun queryLikeCount(
+        targetUin: Long,
+        callback: (code: Int, alreadyLiked: Boolean, likeCount: String, rawData: ByteArray?, errorMsg: String?) -> Unit
+    ) {
+        val body = ProtoWire.message()
+            .writeVarint(1, targetUin)
+            .toByteArray()
+
+        sendOidb("OidbSvcTrpcTcp.0x985c_0", 39004, 0, body) { code, data, errorMsg ->
+            var alreadyLiked = false
+            var likeCount = "0"
+            if (code == 0 && data != null) {
+                likeCount = ProtoWire.firstString(data, 1) ?: "0"
+                alreadyLiked = (ProtoWire.firstVarint(data, 2) ?: 0L) != 0L
+            }
+            callback(code, alreadyLiked, likeCount, data, errorMsg)
         }
     }
 }
