@@ -36,7 +36,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        syncConfigToQQ()
     }
 
     override fun onDestroy() {
@@ -162,16 +161,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncConfigToQQ() {
-        val prefs = PreferencesHelper.getPrefs(this)
-        val study = prefs.getBoolean(PreferencesHelper.KEY_STUDY, true)
-        val work = prefs.getBoolean(PreferencesHelper.KEY_WORK, true)
-        val care = prefs.getBoolean(PreferencesHelper.KEY_CARE, true)
-        val adv = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, true)
+       val prefs = PreferencesHelper.getPrefs(this)
+       val study = prefs.getBoolean(PreferencesHelper.KEY_STUDY, true)
+       val work = prefs.getBoolean(PreferencesHelper.KEY_WORK, true)
+       val care = prefs.getBoolean(PreferencesHelper.KEY_CARE, true)
+       val adv = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, true)
        val settle = prefs.getBoolean(PreferencesHelper.KEY_SETTLE, true)
-       val studyMode = prefs.getInt(PreferencesHelper.KEY_STUDY_MODE, 0)
-       val workMode = prefs.getInt(PreferencesHelper.KEY_WORK_MODE, 0)
-       val careEnergy = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
-       val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
 
        try {
            val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
@@ -181,10 +176,6 @@ class MainActivity : AppCompatActivity() {
                putExtra("extra_care", care)
                putExtra("extra_adventure", adv)
                putExtra("extra_settle", settle)
-               putExtra("extra_study_mode", studyMode)
-               putExtra("extra_work_mode", workMode)
-               putExtra("extra_care_energy_threshold", careEnergy)
-               putExtra("extra_care_clean_threshold", careClean)
            }
            sendBroadcast(intent)
         } catch (t: Throwable) {

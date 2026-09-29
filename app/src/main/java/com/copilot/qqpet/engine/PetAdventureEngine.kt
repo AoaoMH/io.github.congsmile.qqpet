@@ -45,6 +45,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         @Volatile var enableAdventure = false
         @Volatile var enableSettle = true
         @Volatile var enableLikeBack = true
+        @Volatile var enableClaimCoinBag = true
+        @Volatile var enableFatigueToAdventure = true
 
         // 实时状态文本与轮转游标
         @Volatile var currentStatusText = "全自动守护中 · 一刻不停三维轮转"
@@ -66,11 +68,109 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        @Volatile var prefCareEnergyThreshold = 60 // 体力进食阈值 (低于设定值立即进食)
        @Volatile var prefCareCleanThreshold = 60 // 清洁洗澡阈值 (低于设定值立即沐浴)
 
-       @Volatile var lastCareTimeMillis: Long = 0L
-        @Volatile var lastLikeBackTimeMillis: Long = 0L
+      @Volatile var lastCareTimeMillis: Long = 0L
+       @Volatile var lastLikeBackTimeMillis: Long = 0L
+       @Volatile var lastCoinBagTimeMillis: Long = 0L
+       private val todayLikedUins = java.util.Collections.synchronizedSet(HashSet<Long>())
+       @Volatile private var lastLikeDayKey = ""
+       private val todayClaimedBagIds = java.util.Collections.synchronizedSet(HashSet<String>())
+       @Volatile private var lastCoinBagDayKey = ""
+       @Volatile private var coinBagDailyLimitReached = false
 
-        // 动态嗅探学习到的最新课程与工种（持久化）
-        @Volatile var learnedStudySubEvent: Long? = null
+       private fun currentDayKey(): String {
+           val cal = java.util.Calendar.getInstance()
+           return "${cal.get(java.util.Calendar.YEAR)}-${cal.get(java.util.Calendar.DAY_OF_YEAR)}"
+       }
+
+       private fun syncTodayLikedUins(context: Context) {
+           val todayKey = currentDayKey()
+           if (lastLikeDayKey != todayKey) {
+               todayLikedUins.clear()
+               lastLikeDayKey = todayKey
+           }
+           try {
+               val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+               val savedDay = prefs.getString("key_liked_uins_date", "") ?: ""
+               if (savedDay == todayKey) {
+                   val csv = prefs.getString("key_liked_uins_csv", "") ?: ""
+                   if (csv.isNotEmpty()) {
+                       csv.split(",").mapNotNull { it.trim().toLongOrNull() }.forEach { todayLikedUins.add(it) }
+                   }
+               } else if (savedDay.isNotEmpty()) {
+                   prefs.edit().putString("key_liked_uins_date", todayKey).putString("key_liked_uins_csv", "").commit()
+               }
+           } catch (_: Throwable) {}
+       }
+
+       private fun markFriendLikedToday(context: Context, uin: Long) {
+           val todayKey = currentDayKey()
+           if (lastLikeDayKey != todayKey) {
+               todayLikedUins.clear()
+               lastLikeDayKey = todayKey
+           }
+           todayLikedUins.add(uin)
+           try {
+               val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+               val csv = synchronized(todayLikedUins) { todayLikedUins.joinToString(",") }
+               prefs.edit()
+                   .putString("key_liked_uins_date", todayKey)
+                   .putString("key_liked_uins_csv", csv)
+                   .commit()
+           } catch (_: Throwable) {}
+       }
+
+       private fun syncTodayClaimedBags(context: Context) {
+           val todayKey = currentDayKey()
+           if (lastCoinBagDayKey != todayKey) {
+               todayClaimedBagIds.clear()
+               coinBagDailyLimitReached = false
+               lastCoinBagDayKey = todayKey
+           }
+           try {
+               val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+               val savedDay = prefs.getString("key_coinbag_date", "") ?: ""
+               if (savedDay == todayKey) {
+                   val csv = prefs.getString("key_coinbag_ids_csv", "") ?: ""
+                   if (csv.isNotEmpty()) {
+                       csv.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { todayClaimedBagIds.add(it) }
+                   }
+                   coinBagDailyLimitReached = prefs.getBoolean("key_coinbag_limit_reached", false)
+               } else if (savedDay.isNotEmpty()) {
+                   prefs.edit()
+                       .putString("key_coinbag_date", todayKey)
+                       .putString("key_coinbag_ids_csv", "")
+                       .putBoolean("key_coinbag_limit_reached", false)
+                       .commit()
+               }
+           } catch (_: Throwable) {}
+       }
+
+       private fun markCoinBagHandledToday(context: Context, bagId: String, limitReached: Boolean = false) {
+           val todayKey = currentDayKey()
+           if (lastCoinBagDayKey != todayKey) {
+               todayClaimedBagIds.clear()
+               coinBagDailyLimitReached = false
+               lastCoinBagDayKey = todayKey
+           }
+           if (bagId.isNotEmpty()) {
+               todayClaimedBagIds.add(bagId)
+           }
+           if (limitReached) {
+               coinBagDailyLimitReached = true
+           }
+           try {
+               val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+               val csv = synchronized(todayClaimedBagIds) { todayClaimedBagIds.joinToString(",") }
+               prefs.edit()
+                   .putString("key_coinbag_date", todayKey)
+                   .putString("key_coinbag_ids_csv", csv)
+                   .putBoolean("key_coinbag_limit_reached", coinBagDailyLimitReached)
+                   .commit()
+           } catch (_: Throwable) {}
+       }
+
+       // 动态嗅探学习到的最新课程与工种（持久化）
+       @Volatile var learnedStudySubEvent: Long? = null
         @Volatile var learnedStudyName: String? = null
         @Volatile var learnedWorkSubEvent: Long? = null
         @Volatile var learnedWorkName: String? = null
@@ -203,6 +303,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             enableAdventure = prefs.getBoolean("key_adventure", false)
             enableSettle = prefs.getBoolean("key_settle", true)
             enableLikeBack = prefs.getBoolean(PreferencesHelper.KEY_LIKE_BACK, true)
+            enableClaimCoinBag = prefs.getBoolean(PreferencesHelper.KEY_CLAIM_COINBAG, true)
+            enableFatigueToAdventure = prefs.getBoolean(PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true)
             prefStudyMode = prefs.getInt("key_study_mode", 0)
             prefWorkMode = prefs.getInt("key_work_mode", 0)
             prefCustomSchoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
@@ -243,6 +345,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 currentTaskEndTimeMillis = savedEndTime
                 currentTaskTypeName = savedTaskType
             }
+            syncTodayLikedUins(context)
+            syncTodayClaimedBags(context)
 
             Log.i(TAG, "从 SharedPreferences 重新载入配置: 学习=$enableStudy, 打工=$enableWork, 照顾=$enableCare, 冒险=$enableAdventure, 结算=$enableSettle, 学习模式=$prefStudyMode, 打工模式=$prefWorkMode, petId=$cachedPetId, 已学课程=$learnedStudyName($learnedStudySubEvent)")
         } catch (t: Throwable) {
@@ -264,6 +368,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         adventure: Boolean,
         settle: Boolean,
         likeBack: Boolean = enableLikeBack,
+        claimCoinBag: Boolean = enableClaimCoinBag,
+        fatigueToAdventure: Boolean = enableFatigueToAdventure,
         studyMode: Int = prefStudyMode,
         workMode: Int = prefWorkMode,
        schoolStage: Int = prefCustomSchoolStage,
@@ -280,6 +386,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        enableAdventure = adventure
        enableSettle = settle
        enableLikeBack = likeBack
+       enableClaimCoinBag = claimCoinBag
+       enableFatigueToAdventure = fatigueToAdventure
        prefStudyMode = studyMode
        prefWorkMode = workMode
        prefCustomSchoolStage = schoolStage
@@ -376,6 +484,24 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 } catch (_: Throwable) {}
 
                 sendLog(context, "⏳ [状态] 宠物正在$taskType (StoryID: ${storyStatus.storyId})，剩余 $mins 分 $secs 秒 (总计 ${storyStatus.total ?: 0} 秒)")
+
+                // 2.5 若开启「疲惫时自动转冒险」，且当前正在学习(6100)或打工(6400)，实时检测是否带有疲惫减益 Buff
+                if (enableFatigueToAdventure && (storyStatus.storyId.startsWith("6100") || storyStatus.storyId.startsWith("6400"))) {
+                    val fatigueRes = queryProcessStoryInfoAwait(storyStatus.storyId, petId)
+                    if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
+                        val switched = handleFatigueSwitchToAdventure(
+                            context = context,
+                            petId = petId,
+                            activeStoryId = storyStatus.storyId,
+                            currentTaskLabel = taskType,
+                            tipText = fatigueRes.tipText
+                        )
+                        if (switched) {
+                            delay(5 * 1000L)
+                            return
+                        }
+                    }
+                }
                 true
             } else {
                 if (!storyStatus.storyId.isNullOrEmpty() && lastActiveStoryId == null) {
@@ -416,11 +542,20 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             }
         }
 
+        // 4.6 自动领取好友福袋：周期性扫描好友列表中的 CoinBag 并拆取金币
+        if (enableClaimCoinBag) {
+            val now = System.currentTimeMillis()
+            if (now - lastCoinBagTimeMillis > 4 * 60 * 1000L) {
+                lastCoinBagTimeMillis = now
+                executeAutoClaimCoinBag(context, petId, isManual = false)
+            }
+        }
+
        // 4. 自动照顾：喂食 + 洗澡 (周期性守护，无论是否在任务中，均定期进行照顾补充体力与清洁度)
        if (enableCare) {
            val now = System.currentTimeMillis()
            bridge.refreshProfile()
-           val attrs = bridge.getPetAttributes(petId)
+           val attrs = queryPetAttributesAwait(petId) ?: bridge.getPetAttributes(petId)
 
            if (attrs != null) {
                val curEnergy = attrs.energy
@@ -452,8 +587,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                    if (needBath) {
                        currentStatusText = "身体脏了 · 立即沐浴清洁"
                        sendLog(context, "🧼 [沐浴守护] 当前清洁度 ${curClean.toInt()}/${maxClean.toInt()} 低于设定阈值 ($prefCareCleanThreshold)，立即香皂沐浴...")
-                       val (bCode, _) = bathAwait(petId)
-                       sendLog(context, if (bCode == 0) "✅ [沐浴守护] 洗澡清洁成功！身体干干净净" else "ℹ️ [沐浴守护] 洗澡回包 code=$bCode")
+                       val bathRes = bathWithAutoBuyAwait(context, petId)
+                       if (bathRes.code == 0) {
+                           sendLog(context, "✅ [沐浴守护] 洗澡清洁成功！当前清洁度已升至 ${bathRes.newClean}/${maxClean.toInt()}")
+                       } else {
+                           sendLog(context, "ℹ️ [沐浴守护] 洗澡回包 code=${bathRes.code} ${bathRes.errorMsg ?: ""}")
+                       }
                        delay(1200L)
                        bridge.refreshProfile()
                    }
@@ -474,8 +613,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                    }
 
                    sendLog(context, "🧼 [照顾] 自动香皂沐浴提升清洁...")
-                   val (bCode, _) = bathAwait(petId)
-                   sendLog(context, if (bCode == 0) "✅ [照顾] 洗澡成功！" else "ℹ️ [照顾] 洗澡回包 code=$bCode")
+                   val bathRes = bathWithAutoBuyAwait(context, petId)
+                   if (bathRes.code == 0) {
+                       sendLog(context, "✅ [照顾] 洗澡成功！当前清洁度: ${bathRes.newClean}/100")
+                   } else {
+                       sendLog(context, "ℹ️ [照顾] 洗澡回包 code=${bathRes.code} ${bathRes.errorMsg ?: ""}")
+                   }
                    delay(1200L)
                }
            }
@@ -576,9 +719,20 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         }
         sendLog(context, "📚 [学园阶段] 锁定目标学园: $stageName (stage=$targetStage, 自定义=${prefCustomSchoolStage > 0})")
 
-        val (evtCode, dynamicEvents) = querySelectEventsAwait(6100L, petId, schoolStage = targetStage, careerType = 0)
-        if (evtCode == 0 && dynamicEvents.isNotEmpty()) {
-            sendLog(context, "📚 [课程拉取] 服务端返回 ${dynamicEvents.size} 门课程: " + dynamicEvents.joinToString { "${it.eventName}(${it.costTime},${it.reward.take(6)},can=${it.canDo})" })
+       val (evtCode, dynamicEvents) = querySelectEventsAwait(6100L, petId, schoolStage = targetStage, careerType = 0)
+       if (evtCode == 0 && dynamicEvents.isNotEmpty()) {
+           sendLog(context, "📚 [课程拉取] 服务端返回 ${dynamicEvents.size} 门课程: " + dynamicEvents.joinToString { "${it.eventName}(${it.costTime},${it.reward.take(6)},can=${it.canDo})" })
+           if (enableFatigueToAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+               val switched = handleFatigueSwitchToAdventure(
+                   context = context,
+                   petId = petId,
+                   activeStoryId = null,
+                   currentTaskLabel = "学园选课",
+                   tipText = QQPetDirectBridge.lastSelectEventsFatigueTip
+               )
+               if (switched) return true
+                return false
+           }
             
             // 优先筛选满足条件 (canDo == true) 的课程
             val availableCourses = dynamicEvents.filter { it.canDo }.ifEmpty { dynamicEvents }
@@ -612,16 +766,28 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
                 currentStatusText = "正在进修 ${targetCourse.eventName} · $modeDesc"
                 sendLog(context, "🎉 [开课成功] 顺利开启 ${targetCourse.eventName}！StoryID: $storyId，学分高速增长中")
+                if (enableFatigueToAdventure) {
+                    delay(600L)
+                    val fatigueRes = queryProcessStoryInfoAwait(storyId, petId)
+                    if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
+                        handleFatigueSwitchToAdventure(context, petId, storyId, "进修 ${targetCourse.eventName}", fatigueRes.tipText)
+                    }
+                }
                 return true
-            } else {
-                sendLog(context, "⚠️ [动态选课] ${targetCourse.eventName} 报名回包 code=$codeSchool, 服务端说明: ${errorMsg ?: "无"}")
-            }
-        } else {
-            sendLog(context, "⚠️ [动态选课] 服务端动态拉取课程回包 code=$evtCode, 尝试候选池保底...")
+           } else {
+               sendLog(context, "⚠️ [动态选课] ${targetCourse.eventName} 报名回包 code=$codeSchool, 服务端说明: ${errorMsg ?: "无"}")
+           }
+       } else {
+           sendLog(context, "⚠️ [动态选课] 服务端动态拉取课程回包 code=$evtCode, 尝试候选池保底...")
+       }
+
+        // 若处于疲惫状态且开启疲惫转冒险，绝不使用保底候选池上学
+        if (enableFatigueToAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+            return false
         }
 
-        // 第二阶段：候选池兜底机制
-        val candidatePool = mutableListOf<Triple<String, Long, Long>>()
+       // 第二阶段：候选池兜底机制
+       val candidatePool = mutableListOf<Triple<String, Long, Long>>()
 
         val learnedSub = learnedStudySubEvent
         val learnedName = learnedStudyName
@@ -666,6 +832,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 }
                 currentStatusText = "正在进修 ${course.first} · $modeDesc"
                 sendLog(context, "🎉 [开课成功] 顺利开启 ${course.first}！StoryID: $storyId，属性与学分高速增长中")
+                if (enableFatigueToAdventure) {
+                    delay(600L)
+                    val fatigueRes = queryProcessStoryInfoAwait(storyId, petId)
+                    if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
+                        handleFatigueSwitchToAdventure(context, petId, storyId, "进修 ${course.first}", fatigueRes.tipText)
+                    }
+                }
                 return true
             } else {
                 sendLog(context, "ℹ️ [课程探测] ${course.first} 回包 code=$codeSchool, 服务端说明: ${errorMsg ?: "无"}")
@@ -708,10 +881,21 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            Pair(prefCustomWorkType, matched?.title ?: "小镇场所#$prefCustomWorkType")
        }
 
-       val (evtCode, dynamicJobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareerType)
-       if (evtCode == 0 && dynamicJobs.isNotEmpty()) {
-           sendLog(context, "💼 [岗位拉取] 服务端返回 ${dynamicJobs.size} 个工种: " + dynamicJobs.joinToString { "${it.eventName}(${it.costTime},can=${it.canDo})" })
-           val availableJobs = dynamicJobs.filter { it.canDo }.ifEmpty { dynamicJobs }
+      val (evtCode, dynamicJobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareerType)
+      if (evtCode == 0 && dynamicJobs.isNotEmpty()) {
+          sendLog(context, "💼 [岗位拉取] 服务端返回 ${dynamicJobs.size} 个工种: " + dynamicJobs.joinToString { "${it.eventName}(${it.costTime},can=${it.canDo})" })
+          if (enableFatigueToAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+              val switched = handleFatigueSwitchToAdventure(
+                  context = context,
+                  petId = petId,
+                  activeStoryId = null,
+                  currentTaskLabel = "小镇求职",
+                  tipText = QQPetDirectBridge.lastSelectEventsFatigueTip
+              )
+              if (switched) return true
+              return false
+          }
+          val availableJobs = dynamicJobs.filter { it.canDo }.ifEmpty { dynamicJobs }
            // 根据工时偏好精准挑选 (官方阶梯: 10分钟 / 45分钟 / 2小时 / 4小时)
            val targetJob = when (prefCustomWorkDuration) {
                1 -> availableJobs.find { it.costTime.contains("10") } ?: availableJobs.first()
@@ -731,16 +915,28 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
                currentStatusText = "正在 $placeName 进行 ${targetJob.eventName}"
                sendLog(context, "🎉 [打工成功] 顺利开工 $placeName - ${targetJob.eventName}！StoryID: $storyId，勤劳致富中")
+               if (enableFatigueToAdventure) {
+                   delay(600L)
+                   val fatigueRes = queryProcessStoryInfoAwait(storyId, petId)
+                   if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
+                       handleFatigueSwitchToAdventure(context, petId, storyId, "打工 ${targetJob.eventName}", fatigueRes.tipText)
+                   }
+               }
                return true
-           } else {
-               sendLog(context, "⚠️ [动态打工] ${targetJob.eventName} 开工回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
-           }
-        } else {
-            sendLog(context, "⚠️ [动态打工] 服务端动态拉取工种回包 code=$evtCode, 尝试候选池保底...")
-        }
+          } else {
+              sendLog(context, "⚠️ [动态打工] ${targetJob.eventName} 开工回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
+          }
+       } else {
+           sendLog(context, "⚠️ [动态打工] 服务端动态拉取工种回包 code=$evtCode, 尝试候选池保底...")
+       }
 
-        // 第二阶段：候选池兜底机制
-        val candidatePool = mutableListOf<Triple<String, Long, Long>>()
+       // 若处于疲惫状态且开启疲惫转冒险，绝不使用保底候选池打工
+       if (enableFatigueToAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+           return false
+       }
+
+       // 第二阶段：候选池兜底机制
+       val candidatePool = mutableListOf<Triple<String, Long, Long>>()
 
         val learnedSub = learnedWorkSubEvent
         val learnedName = learnedWorkName
@@ -785,6 +981,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 }
                 currentStatusText = "正在进行 ${job.first} · $modeDesc"
                 sendLog(context, "🎉 [打工成功] 顺利开工 ${job.first}！StoryID: $storyId")
+                if (enableFatigueToAdventure) {
+                    delay(600L)
+                    val fatigueRes = queryProcessStoryInfoAwait(storyId, petId)
+                    if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
+                        handleFatigueSwitchToAdventure(context, petId, storyId, "打工 ${job.first}", fatigueRes.tipText)
+                    }
+                }
                 return true
             } else {
                 sendLog(context, "ℹ️ [工种探测] ${job.first} 回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
@@ -811,7 +1014,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                "care" -> {
                    val petId = ensurePetId(context) ?: return@launch
                    bridge.refreshProfile()
-                   val attrs = bridge.getPetAttributes(petId)
+                   val attrs = queryPetAttributesAwait(petId) ?: bridge.getPetAttributes(petId)
                    if (attrs != null) {
                        sendLog(context, "📊 [照顾实测] 当前体力: ${attrs.energy.toInt()}/${attrs.maxEnergy.toInt()}, 清洁: ${attrs.clean.toInt()}/${attrs.maxClean.toInt()}, 心情: ${attrs.mood.toInt()}")
                    }
@@ -826,8 +1029,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                        delay(1200L)
                    }
                    sendLog(context, "🧼 [照顾实测] 发起香皂沐浴...")
-                   val (bCode, _) = bathAwait(petId)
-                   sendLog(context, if (bCode == 0) "✅ [照顾实测] 洗澡成功！清洁度已提升" else "ℹ️ [照顾实测] 洗澡回包 code=$bCode")
+                   val bathRes = bathWithAutoBuyAwait(context, petId)
+                   if (bathRes.code == 0) {
+                       sendLog(context, "✅ [照顾实测] 洗澡成功！清洁度已升至 ${bathRes.newClean}/100 (累计 +${bathRes.addedClean})")
+                   } else {
+                       sendLog(context, "ℹ️ [照顾实测] 洗澡回包 code=${bathRes.code} ${bathRes.errorMsg ?: ""}")
+                   }
                    bridge.refreshProfile()
                }
                 "work" -> {
@@ -901,26 +1108,42 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         sendLog(context, "❌ [互踩实测] 拉取访客列表失败: code=$code")
                         return@launch
                     }
-                    if (members.isEmpty()) {
-                        sendLog(context, "ℹ️ [互踩实测] 暂无访客来踩记录")
-                        return@launch
-                    }
-                    val toLike = members.filter { it.canLikeBack }
-                    sendLog(context, "📊 [互踩实测] 成功拉取到 ${members.size} 条来访记录，其中 ${toLike.size} 位好友尚未回踩")
-                    var successCount = 0
-                    for (m in toLike) {
-                        val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
-                        sendLog(context, "🐾 [互踩实测] 正在回踩好友: $name (${m.uin})...")
-                        val (lCode, _) = sendLikeAwait(m.uin)
-                        if (lCode == 0) {
-                            successCount++
-                            sendLog(context, "✅ [互踩实测] 成功回踩好友 $name！")
-                        } else {
-                            sendLog(context, "ℹ️ [互踩实测] 回踩好友 $name 回包: code=$lCode")
-                        }
-                        delay(1200L)
-                    }
-                    sendLog(context, "🎉 [互踩实测] 回踩任务完成！共成功回踩 $successCount 位好友")
+                   if (members.isEmpty()) {
+                       sendLog(context, "ℹ️ [互踩实测] 暂无访客来踩记录")
+                       return@launch
+                   }
+                   syncTodayLikedUins(context)
+                   val toLike = members.filter { it.canLikeBack && !todayLikedUins.contains(it.uin) }
+                   if (toLike.isEmpty()) {
+                       sendLog(context, "✅ [互踩实测] 来访的 ${members.size} 位好友今日已全部回踩完毕，无需重复操作")
+                       return@launch
+                   }
+                   sendLog(context, "📊 [互踩实测] 成功拉取到 ${members.size} 条来访记录，其中 ${toLike.size} 位好友尚未回踩")
+                   var successCount = 0
+                   for (m in toLike) {
+                       val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
+                       sendLog(context, "🐾 [互踩实测] 正在回踩好友: $name (${m.uin})...")
+                       val (lCode, lErr) = sendLikeAwait(m.uin)
+                       if (lCode == 0 || lCode == 136202) {
+                           markFriendLikedToday(context, m.uin)
+                           if (lCode == 0) {
+                               successCount++
+                               sendLog(context, "✅ [互踩实测] 成功回踩好友 $name！")
+                               delay(1000L)
+                           } else {
+                               sendLog(context, "ℹ️ [互踩实测] 好友 $name 今日已互踩过 (已登记防重)")
+                               delay(150L)
+                           }
+                       } else {
+                           sendLog(context, "ℹ️ [互踩实测] 回踩好友 $name 回包: code=$lCode ${lErr ?: ""}")
+                           delay(600L)
+                       }
+                   }
+                   sendLog(context, "🎉 [互踩实测] 回踩任务完成！共成功回踩 $successCount 位好友")
+                }
+                "coinbag" -> {
+                    val petId = ensurePetId(context) ?: return@launch
+                    executeAutoClaimCoinBag(context, petId, isManual = true)
                 }
                "inspect" -> {
                    val petId = ensurePetId(context) ?: return@launch
@@ -1009,6 +1232,87 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             StoryStatusResult(-99, null, null, null)
         }
 
+    suspend fun queryProcessStoryInfoAwait(
+        storyId: String,
+        petId: String,
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): QQPetDirectBridge.ProcessStoryFatigueResult =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.queryProcessStoryInfo(storyId, petId) { res ->
+                        if (cont.isActive) cont.resume(res)
+                    }
+                }
+            } ?: QQPetDirectBridge.ProcessStoryFatigueResult(-99, false, null, 0, "超时")
+        } catch (t: Throwable) {
+            QQPetDirectBridge.ProcessStoryFatigueResult(-99, false, null, 0, t.message)
+        }
+
+    /**
+     * 检测到疲惫减益时：若正在学习/打工则立即取消召回，并直接改派前往神秘森林冒险（6700）直至疲惫 Buff 刷新
+     */
+   private suspend fun handleFatigueSwitchToAdventure(
+       context: Context,
+       petId: String,
+       activeStoryId: String?,
+       currentTaskLabel: String,
+       tipText: String?
+   ): Boolean {
+        val tipDesc = tipText
+            ?.replace(Regex("!\\[[^\\]]*\\]\\([^)]*\\)"), "")
+            ?.replace(Regex("\\[[^\\]]*\\]\\([^)]*\\)"), "")
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() } ?: "疲惫，收益减少"
+       if (!activeStoryId.isNullOrEmpty()) {
+            currentStatusText = "检测到疲惫 · 正在取消$currentTaskLabel"
+            sendLog(context, "😫 [疲惫保护] 检测到小宠「$tipDesc」，立即取消当前$currentTaskLabel (StoryID: $activeStoryId) 并转去森林探险...")
+            val (recallCode, recallErr) = recallStoryAwait(activeStoryId, petId)
+            if (recallCode == 0) {
+                lastActiveStoryId = null
+                currentTaskEndTimeMillis = 0L
+                sendLog(context, "✅ [疲惫保护] 已提前召回结束$currentTaskLabel，正在转头出发神秘森林探险...")
+                delay(1200L)
+            } else {
+                sendLog(context, "⚠️ [疲惫保护] 召回$currentTaskLabel 回包: code=$recallCode ${recallErr ?: ""}")
+                return false
+            }
+        } else {
+            currentStatusText = "检测到疲惫 · 自动转去森林探险"
+            sendLog(context, "😫 [疲惫保护] 检测到小宠「$tipDesc」，跳过$currentTaskLabel，直接转头前往神秘森林探险...")
+        }
+
+        var (advCode, advStoryId) = startAdventureAwait(petId)
+        if (advCode != 0 && !activeStoryId.isNullOrEmpty()) {
+            // 若召回后仍有待结算状态阻挡出发，自动补发一次结算后再启程探险
+            settleStoryAwait(activeStoryId, petId)
+            delay(800L)
+            val retry = startAdventureAwait(petId)
+            advCode = retry.first
+            advStoryId = retry.second
+        }
+
+        return if (advCode == 0 && !advStoryId.isNullOrEmpty()) {
+            lastActiveStoryId = advStoryId
+            currentTaskTypeName = "森林探险中 (疲惫恢复)"
+            currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
+            currentStatusText = "疲惫恢复中 · 森林探险"
+            try {
+                val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putLong("key_task_end_time", currentTaskEndTimeMillis)
+                    .putString("key_task_type", currentTaskTypeName)
+                    .commit()
+            } catch (_: Throwable) {}
+            sendLog(context, "🎉 [疲惫转冒险] 成功转去神秘森林探险 (StoryID: $advStoryId)！待疲惫 Buff 刷新消失后将自动恢复学习/打工")
+            true
+        } else {
+            sendLog(context, "⚠️ [疲惫转冒险] 发起森林探险回包 code=$advCode")
+            false
+        }
+    }
+
    private suspend fun settleStoryAwait(storyId: String, petId: String, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, ByteArray?> =
        try {
            withTimeoutOrNull(timeoutMs) {
@@ -1061,18 +1365,194 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             Pair(-99, null)
         }
 
-   private suspend fun bathAwait(petId: String, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, ByteArray?> =
-       try {
-           withTimeoutOrNull(timeoutMs) {
-               suspendCancellableCoroutine { cont ->
-                   bridge.bath(petId) { code, data, _ ->
-                       if (cont.isActive) cont.resume(Pair(code, data))
-                   }
-               }
-           } ?: Pair(-99, null)
-       } catch (_: Throwable) {
-           Pair(-99, null)
-       }
+    suspend fun queryPetAttributesAwait(
+        petId: String,
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): QQPetDirectBridge.PetAttributes? =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.queryPetAttributes(petId) { _, attrs ->
+                        if (cont.isActive) cont.resume(attrs)
+                    }
+                }
+            }
+        } catch (_: Throwable) {
+            null
+        }
+
+    suspend fun fetchBathItemConfigAwait(
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): Pair<Int, List<QQPetDirectBridge.BathItemConfig>> =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.fetchBathItemConfig { code, items ->
+                        if (cont.isActive) cont.resume(Pair(code, items))
+                    }
+                }
+            } ?: Pair(-99, emptyList())
+        } catch (_: Throwable) {
+            Pair(-99, emptyList())
+        }
+
+    suspend fun fetchBathInventoryAwait(
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): Pair<Int, Map<String, Int>> =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.fetchBathInventory { code, map ->
+                        if (cont.isActive) cont.resume(Pair(code, map))
+                    }
+                }
+            } ?: Pair(-99, emptyMap())
+        } catch (_: Throwable) {
+            Pair(-99, emptyMap())
+        }
+
+    suspend fun buyBathItemAwait(
+        petId: String,
+        itemId: String,
+        count: Int = 5,
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): Triple<Int, Int, String?> =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.buyBathItem(petId, itemId, count) { code, orderResult, err ->
+                        if (cont.isActive) cont.resume(Triple(code, orderResult, err))
+                    }
+                }
+            } ?: Triple(-99, 0, "超时")
+        } catch (t: Throwable) {
+            Triple(-99, 0, t.message)
+        }
+
+    suspend fun doBathOnceAwait(
+        petId: String,
+        itemId: String,
+        useNum: Int = 1,
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): QQPetDirectBridge.BathResult =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.doBathOnce(petId, itemId, useNum) { res ->
+                        if (cont.isActive) cont.resume(res)
+                    }
+                }
+            } ?: QQPetDirectBridge.BathResult(-99, -1, 0, -1, false, "超时")
+        } catch (t: Throwable) {
+            QQPetDirectBridge.BathResult(-99, -1, 0, -1, false, t.message)
+        }
+
+    /**
+     * 真实香皂沐浴闭环 (0x9bf1_1 查商品 + 0x9bf2_1 查库存 + 0x9bd0_0 自动买香皂 + 0x9bf3_1 循环搓澡至 100)
+     */
+    suspend fun bathWithAutoBuyAwait(context: Context, petId: String): QQPetDirectBridge.BathResult {
+        val attrs = queryPetAttributesAwait(petId) ?: bridge.getPetAttributes(petId)
+        val startClean = attrs?.clean?.toInt() ?: -1
+        val maxClean = attrs?.maxClean?.toInt()?.takeIf { it > 0 } ?: 100
+
+        val (_, configs) = fetchBathItemConfigAwait()
+        val (_, inventory) = fetchBathInventoryAwait()
+
+        val chosenConfig = configs.firstOrNull { it.cleanValue > 0 } ?: configs.firstOrNull()
+        val itemId = chosenConfig?.itemId
+            ?: inventory.keys.firstOrNull()
+            ?: "2010104"
+        val itemName = chosenConfig?.name ?: "香皂片"
+        val cleanPerSoap = chosenConfig?.cleanValue?.takeIf { it > 0 } ?: 10
+        val defaultBuyCount = chosenConfig?.defaultPurchaseCount?.takeIf { it > 0 } ?: 5
+        var balance = inventory[itemId] ?: 0
+
+        if (startClean >= maxClean) {
+            sendLog(context, "✨ [沐浴检查] 当前清洁度已满 ($startClean/$maxClean)，无需消耗$itemName (库存: $balance)")
+            return QQPetDirectBridge.BathResult(0, startClean, 0, balance, true, null)
+        }
+
+        var curClean = if (startClean >= 0) startClean else 0
+        var totalAdded = 0
+        var steps = 0
+        val maxSteps = 12
+
+        while (curClean < maxClean && steps < maxSteps) {
+            steps++
+            if (balance <= 0) {
+                val gapClean = (maxClean - curClean).coerceAtLeast(cleanPerSoap)
+                val neededSoaps = ((gapClean + cleanPerSoap - 1) / cleanPerSoap).coerceIn(1, 10)
+                val buyCount = maxOf(neededSoaps, defaultBuyCount)
+                sendLog(context, "🛒 [自动采购] 背包${itemName}不足 (库存 0)，正在自动采购 $buyCount 份${itemName}...")
+                val (buyCode, orderResult, buyErr) = buyBathItemAwait(petId, itemId, buyCount)
+                if (buyCode == 0 && (orderResult == 1 || orderResult == 0)) {
+                    balance += buyCount
+                    sendLog(context, "✅ [自动采购] 成功购入 $buyCount 份${itemName}！继续为小宠搓澡...")
+                    delay(400L)
+                } else {
+                    val reason = if (orderResult == 2) "金币不足" else (buyErr ?: "code=$buyCode, orderResult=$orderResult")
+                    sendLog(context, "❌ [自动采购] 购买${itemName}失败: $reason")
+                    return QQPetDirectBridge.BathResult(
+                        if (buyCode != 0) buyCode else -2,
+                        curClean,
+                        totalAdded,
+                        balance,
+                        false,
+                        "购买${itemName}失败($reason)"
+                    )
+                }
+            }
+
+            val res = doBathOnceAwait(petId, itemId, 1)
+            if (res.code != 0) {
+                // 若因库存同步延迟导致报错且尚未尝试采购，则置零库存触发下一轮自动采购
+                if (balance > 0 && steps == 1) {
+                    balance = 0
+                    continue
+                }
+                return QQPetDirectBridge.BathResult(res.code, curClean, totalAdded, balance, false, res.errorMsg)
+            }
+
+            curClean = res.newClean
+            totalAdded += res.addedClean
+            balance = res.remainBalance
+            sendLog(context, "🧼 [搓澡进度] 消耗 1 份$itemName (+${res.addedClean}) -> 清洁度 $curClean/$maxClean (剩余库存: $balance)")
+
+            if (res.isFullClean || curClean >= maxClean) {
+                break
+            }
+            delay(450L)
+        }
+
+        // 同步上报一次洗浴完成状态并刷新属性缓存
+        try { bathAwait(petId) } catch (_: Throwable) {}
+        queryPetAttributesAwait(petId)
+        return QQPetDirectBridge.BathResult(0, curClean, totalAdded, balance, curClean >= maxClean, null)
+    }
+
+ private suspend fun bathAwait(petId: String, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, ByteArray?> =
+     try {
+         // 官方洗澡行为分两阶段：阶段一进度 50%，阶段二进度 100%
+         try {
+             withTimeoutOrNull(timeoutMs) {
+                 suspendCancellableCoroutine<Unit> { cont ->
+                     bridge.bath(petId, cleanValue = 50, stage = 1) { _, _, _ ->
+                         if (cont.isActive) cont.resume(Unit)
+                     }
+                 }
+             }
+         } catch (_: Throwable) {}
+          delay(600L)
+          withTimeoutOrNull(timeoutMs) {
+              suspendCancellableCoroutine { cont ->
+                  bridge.bath(petId, cleanValue = 100, stage = 2) { code, data, _ ->
+                      if (cont.isActive) cont.resume(Pair(code, data))
+                  }
+              }
+          } ?: Pair(-99, null)
+      } catch (_: Throwable) {
+          Pair(-99, null)
+      }
 
    suspend fun buyFoodAwait(
        petId: String,
@@ -1244,25 +1724,32 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         }
 
 
-    private suspend fun executeAutoLikeBack(context: Context) {
-        try {
-            val (code, members) = fetchLikeListAwait()
-            if (code == 0 && members.isNotEmpty()) {
-                val toLike = members.filter { it.canLikeBack }
-                if (toLike.isNotEmpty()) {
-                    sendLog(context, "🐾 [自动互踩] 发现 ${toLike.size} 位好友来踩过我家且尚未回踩，开始自动回踩...")
-                    var successCount = 0
-                    for (m in toLike) {
-                        val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
-                        val (lCode, _) = sendLikeAwait(m.uin)
-                        if (lCode == 0) {
-                            successCount++
-                            sendLog(context, "✅ [自动互踩] 成功回踩好友 $name！")
-                        } else {
-                            Log.i(TAG, "自动回踩好友 $name 回包: code=$lCode")
-                        }
-                        delay(1200L)
-                    }
+   private suspend fun executeAutoLikeBack(context: Context) {
+       try {
+           val (code, members) = fetchLikeListAwait()
+           if (code == 0 && members.isNotEmpty()) {
+               syncTodayLikedUins(context)
+               val toLike = members.filter { it.canLikeBack && !todayLikedUins.contains(it.uin) }
+               if (toLike.isNotEmpty()) {
+                   var successCount = 0
+                   for (m in toLike) {
+                       val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
+                       val (lCode, lErr) = sendLikeAwait(m.uin)
+                       if (lCode == 0 || lCode == 136202) {
+                           markFriendLikedToday(context, m.uin)
+                           if (lCode == 0) {
+                               successCount++
+                               sendLog(context, "✅ [自动互踩] 成功回踩好友 $name！")
+                               delay(1000L)
+                           } else {
+                               Log.i(TAG, "自动回踩好友 $name 今日已互踩过 (已登记防重)")
+                               delay(150L)
+                           }
+                       } else {
+                           Log.i(TAG, "自动回踩好友 $name 回包: code=$lCode ${lErr ?: ""}")
+                           delay(500L)
+                       }
+                   }
                     if (successCount > 0) {
                         sendLog(context, "🎉 [自动互踩] 本轮自动回踩完成，成功回踩 $successCount 位好友")
                     }
@@ -1298,6 +1785,162 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         } catch (t: Throwable) {
             Pair(-99, t.message)
         }
+
+    suspend fun fetchFriendCoinBagsPageAwait(
+        cookie: String = "",
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): QuintupleCoinBagPage =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.fetchFriendCoinBags(cookie) { code, bags, count, hasMore, nextCookie, err ->
+                        if (cont.isActive) {
+                            cont.resume(QuintupleCoinBagPage(code, bags, count, hasMore, nextCookie, err))
+                        }
+                    }
+                }
+            } ?: QuintupleCoinBagPage(-99, emptyList(), 0, false, "", "超时")
+        } catch (t: Throwable) {
+            QuintupleCoinBagPage(-99, emptyList(), 0, false, "", t.message)
+        }
+
+    data class QuintupleCoinBagPage(
+        val code: Int,
+        val bags: List<QQPetDirectBridge.FriendCoinBagInfo>,
+        val totalFriendsInPage: Int,
+        val hasMore: Boolean,
+        val nextCookie: String,
+        val errorMsg: String?
+    )
+
+    suspend fun snatchCoinBagAwait(
+        ownPetId: String,
+        coinbagId: String,
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): QQPetDirectBridge.SnatchCoinBagResult =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.snatchCoinBag(ownPetId, coinbagId) { res ->
+                        if (cont.isActive) cont.resume(res)
+                    }
+                }
+            } ?: QQPetDirectBridge.SnatchCoinBagResult(-99, coinbagId, 0L, 0, false, "超时")
+        } catch (t: Throwable) {
+            QQPetDirectBridge.SnatchCoinBagResult(-99, coinbagId, 0L, 0, false, t.message)
+        }
+
+    private suspend fun executeAutoClaimCoinBag(context: Context, ownPetId: String, isManual: Boolean) {
+        try {
+            syncTodayClaimedBags(context)
+            if (!isManual && coinBagDailyLimitReached) {
+                return
+            }
+            if (isManual) {
+                sendLog(context, "🧧 [好友福袋] 正在扫描好友小窝列表，搜寻可领取的福袋...")
+            }
+
+            val discoveredBags = LinkedHashMap<String, QQPetDirectBridge.FriendCoinBagInfo>()
+            var cookie = ""
+            var totalScannedFriends = 0
+            var pageCount = 0
+            var firstErrorCode = 0
+            var firstErrorMsg: String? = null
+
+            while (pageCount < 6) {
+                pageCount++
+                val page = fetchFriendCoinBagsPageAwait(cookie)
+                if (page.code != 0) {
+                    if (pageCount == 1) {
+                        firstErrorCode = page.code
+                        firstErrorMsg = page.errorMsg
+                    }
+                    break
+                }
+                totalScannedFriends += page.totalFriendsInPage
+                for (b in page.bags) {
+                    if (b.coinbagId.isNotEmpty()) {
+                        discoveredBags[b.coinbagId] = b
+                    }
+                }
+                if (!page.hasMore || page.nextCookie.isEmpty() || page.nextCookie == cookie) {
+                    break
+                }
+                cookie = page.nextCookie
+                delay(200L)
+            }
+
+            if (firstErrorCode != 0 && pageCount == 1) {
+                if (isManual) {
+                    sendLog(context, "❌ [好友福袋] 拉取好友列表失败: code=$firstErrorCode ${firstErrorMsg ?: ""}")
+                }
+                return
+            }
+
+            val allBags = discoveredBags.values.toList()
+            if (allBags.isEmpty()) {
+                if (isManual) {
+                    sendLog(context, "ℹ️ [好友福袋] 已扫描 $totalScannedFriends 位好友小窝，当前暂无好友掉落福袋")
+                }
+                return
+            }
+
+            val pendingBags = if (isManual) {
+                allBags
+            } else {
+                allBags.filter { !todayClaimedBagIds.contains(it.coinbagId) }
+            }
+
+            if (pendingBags.isEmpty()) {
+                return
+            }
+
+            sendLog(
+                context,
+                "🧧 [好友福袋] 扫描 $totalScannedFriends 位好友，发现 ${pendingBags.size} 个福袋：" +
+                    pendingBags.joinToString { "${it.friendNick.ifEmpty { it.friendUin.toString() }}(${it.petNick})" }
+            )
+
+            var claimedCount = 0
+            var totalGold = 0L
+            for (bag in pendingBags) {
+                val friendName = bag.friendNick.ifEmpty { bag.friendUin.toString() }
+                val res = snatchCoinBagAwait(ownPetId, bag.coinbagId)
+                when (res.code) {
+                    0 -> {
+                        markCoinBagHandledToday(context, bag.coinbagId)
+                        if (res.gotGold > 0L) {
+                            claimedCount++
+                            totalGold += res.gotGold
+                            sendLog(context, "🎉 [福袋入账] 成功拆开好友 $friendName 的福袋，获得 +${res.gotGold} 金币！")
+                        } else {
+                            sendLog(context, "ℹ️ [好友福袋] 好友 $friendName 的福袋已拆过或已被领完 (status=${res.status})")
+                        }
+                    }
+                    135098 -> {
+                        markCoinBagHandledToday(context, bag.coinbagId, limitReached = true)
+                        sendLog(context, "ℹ️ [好友福袋] 今日领取好友福袋次数已达官方上限 (code=135098)")
+                        break
+                    }
+                    135091, 135092, 135096 -> {
+                        markCoinBagHandledToday(context, bag.coinbagId)
+                        sendLog(context, "ℹ️ [好友福袋] 好友 $friendName 的福袋已被主人收走或已领空 (code=${res.code})")
+                    }
+                    else -> {
+                        markCoinBagHandledToday(context, bag.coinbagId)
+                        sendLog(context, "ℹ️ [好友福袋] 拆取 $friendName 福袋回包: code=${res.code} ${res.errorMsg ?: ""}")
+                    }
+                }
+                delay(450L)
+            }
+
+            if (claimedCount > 0) {
+                sendLog(context, "🧧 [福袋汇总] 本轮成功拆开 $claimedCount 个好友福袋，共计斩获 +$totalGold 金币！")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "自动领取好友福袋异常: ${t.message}")
+        }
+    }
 
     fun sendLog(context: Context, message: String) {
         Log.i(TAG, message)

@@ -92,6 +92,35 @@ class ProtoWire {
             return null
         }
 
+        fun firstFloat(data: ByteArray?, targetField: Int): Float? {
+            if (data == null) return null
+            val pos = intArrayOf(0)
+            try {
+                while (pos[0] < data.size) {
+                    val tag = readVarint(data, pos)
+                    val field = (tag ushr 3).toInt()
+                    val wireType = (tag and 7L).toInt()
+                    if (wireType == 5) {
+                        val start = pos[0]
+                        pos[0] += 4
+                        if (field == targetField && start + 4 <= data.size) {
+                            val bits = (data[start].toInt() and 0xFF) or
+                                ((data[start + 1].toInt() and 0xFF) shl 8) or
+                                ((data[start + 2].toInt() and 0xFF) shl 16) or
+                                ((data[start + 3].toInt() and 0xFF) shl 24)
+                            return Float.fromBits(bits)
+                        }
+                    } else if (wireType == 0) {
+                        val v = readVarint(data, pos)
+                        if (field == targetField) return v.toFloat()
+                    } else {
+                        skipField(data, pos, wireType)
+                    }
+                }
+            } catch (_: Throwable) {}
+            return null
+        }
+
         fun allBytes(data: ByteArray?, targetField: Int): List<ByteArray> {
             if (data == null) return emptyList()
             val list = mutableListOf<ByteArray>()
@@ -149,8 +178,17 @@ class ProtoWire {
                             }
                         }
                         5 -> {
+                            val start = pos[0]
                             pos[0] += 4
-                            sb.append(" [t$field(32b)]")
+                            if (start + 4 <= data.size) {
+                                val bits = (data[start].toInt() and 0xFF) or
+                                    ((data[start + 1].toInt() and 0xFF) shl 8) or
+                                    ((data[start + 2].toInt() and 0xFF) shl 16) or
+                                    ((data[start + 3].toInt() and 0xFF) shl 24)
+                                sb.append(" [t$field(f)=${Float.fromBits(bits)}]")
+                            } else {
+                                sb.append(" [t$field(32b)]")
+                            }
                         }
                     }
                 }
@@ -158,6 +196,38 @@ class ProtoWire {
                 sb.append(" (err: ${t.message})")
             }
             return sb.toString()
+        }
+
+        fun extractAllStrings(data: ByteArray?, maxDepth: Int = 4): List<String> {
+            if (data == null || maxDepth < 0) return emptyList()
+            val result = mutableListOf<String>()
+            val pos = intArrayOf(0)
+            try {
+                while (pos[0] < data.size) {
+                    val tag = readVarint(data, pos)
+                    val wireType = (tag and 7L).toInt()
+                    if (wireType == 2) {
+                        val len = readVarint(data, pos).toInt()
+                        val start = pos[0]
+                        pos[0] += len
+                        if (len > 0 && start + len <= data.size) {
+                            val sub = ByteArray(len)
+                            System.arraycopy(data, start, sub, 0, len)
+                            val str = try { String(sub, Charsets.UTF_8) } catch (_: Throwable) { "" }
+                            val isReadable = str.isNotEmpty() && str.none { it < ' ' && it != '\n' && it != '\r' && it != '\t' } && !str.contains('\uFFFD')
+                            if (isReadable) {
+                                result.add(str)
+                            }
+                            if (maxDepth > 0) {
+                                result.addAll(extractAllStrings(sub, maxDepth - 1))
+                            }
+                        }
+                    } else {
+                        skipField(data, pos, wireType)
+                    }
+                }
+            } catch (_: Throwable) {}
+            return result
         }
 
         private fun skipField(data: ByteArray, pos: IntArray, wireType: Int) {

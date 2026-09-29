@@ -1108,6 +1108,8 @@ object QQSettingDialog {
        dailyCard.addView(createDivider())
 
        addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
+       addSimpleToggleRow(dailyCard, "自动领取好友福袋", "自动扫描好友小窝并拆取掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
+       addSimpleToggleRow(dailyCard, "疲惫时自动转冒险", "检测到疲惫收益减少时，取消打工和学习转去冒险直至恢复", PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true, false)
         addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
         addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, true)
         contentLayout.addView(dailyCard)
@@ -1245,6 +1247,20 @@ object QQSettingDialog {
             isLast = false
         ) {
             triggerAction(context, engine, "like_back")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
+        addActionItem(
+            card = actionCard,
+            title = "立即领取好友福袋",
+            confirmTitle = "立即领取好友福袋？",
+            confirmMessage = "将立即扫描全部好友小窝，发现掉落福袋时自动拆袋领取金币奖励。",
+            confirmBtnText = "立即拆福袋",
+            colorHex = "#007AFF",
+            isLast = false
+        ) {
+            triggerAction(context, engine, "coinbag")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
@@ -1439,8 +1455,12 @@ object QQSettingDialog {
                     stageItems.add(SegmentItem(title, enabled = enabled, disabledTip = tip))
                 }
                 stageSeg.updateItemStates(stageItems)
+                val liveStagePref = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
+                stageSeg.setSelection(liveStagePref)
+                subjSeg.setSelection(prefs.getInt(PreferencesHelper.KEY_COURSE_SUBJECT, 0))
+                durSeg.setSelection(prefs.getInt(PreferencesHelper.KEY_COURSE_DURATION, 0))
 
-                if (currentStagePref == 0) {
+                if (liveStagePref == 0) {
                     val stageTitle = when (curStage) {
                         1 -> "初级学园"
                         2 -> "中级学园"
@@ -1449,6 +1469,8 @@ object QQSettingDialog {
                         else -> "高级学园"
                     }
                     studySubtitle.text = "已锁定 $stageTitle (已解锁最高学府)"
+                } else {
+                    studySubtitle.text = getSchoolStageDesc(liveStagePref)
                 }
                 statusAttributesText.text = "小宠资质 · 力量 ${schoolMap.power}  智力 ${schoolMap.intel}  魅力 ${schoolMap.charm}"
             }
@@ -1469,6 +1491,7 @@ object QQSettingDialog {
 
             // 打工岗位工时动态更新
             updateWorkDurSeg(workDurSeg, preloaded.workJobs)
+            workDurSeg?.setSelection(prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0))
         }
 
         applyUnlockStates(
@@ -1663,6 +1686,8 @@ object QQSettingDialog {
         val adv = prefs.getBoolean("key_adventure", false)
         val settle = prefs.getBoolean("key_settle", true)
         val likeBack = prefs.getBoolean(PreferencesHelper.KEY_LIKE_BACK, true)
+        val claimCoinBag = prefs.getBoolean(PreferencesHelper.KEY_CLAIM_COINBAG, true)
+        val fatigueToAdv = prefs.getBoolean(PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true)
         val studyMode = prefs.getInt("key_study_mode", 0)
         val workMode = prefs.getInt("key_work_mode", 0)
         val schoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
@@ -1673,9 +1698,9 @@ object QQSettingDialog {
        val careEnergy = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
        val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
 
-       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean)
+       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean)
        if (engine != null && engine !== HookEntry.globalEngine) {
-           engine.updateConfig(study, work, care, adv, settle, likeBack, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean)
+           engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean)
        }
        val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
@@ -1685,6 +1710,8 @@ object QQSettingDialog {
            putExtra("extra_adventure", adv)
            putExtra("extra_settle", settle)
            putExtra("extra_like_back", likeBack)
+           putExtra("extra_claim_coinbag", claimCoinBag)
+           putExtra("extra_fatigue_to_adventure", fatigueToAdv)
            putExtra("extra_study_mode", studyMode)
            putExtra("extra_work_mode", workMode)
            putExtra("extra_school_stage", schoolStage)

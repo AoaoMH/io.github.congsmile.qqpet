@@ -20,7 +20,10 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         val level: Int = 0,
         val cost: String = "",
         val costTime: String = "",
-        val reward: String = ""
+        val reward: String = "",
+        val rewardExtra: String = "",
+        val eventTips: String = "",
+        val isOwnerNeedCare: Boolean = false
     )
 
    data class SchoolStageInfo(
@@ -59,6 +62,48 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
        val mood: Float = 0f
    )
 
+   data class BathItemConfig(
+       val itemId: String,
+       val name: String,
+       val gold: Int,
+       val cleanValue: Int,
+       val defaultPurchaseCount: Int
+   )
+
+   data class BathResult(
+       val code: Int,
+       val newClean: Int,
+       val addedClean: Int,
+       val remainBalance: Int,
+       val isFullClean: Boolean,
+       val errorMsg: String? = null
+   )
+
+   data class FriendCoinBagInfo(
+       val friendUin: Long,
+       val friendNick: String,
+       val friendPetId: String,
+       val petNick: String,
+       val coinbagId: String
+   )
+
+   data class SnatchCoinBagResult(
+       val code: Int,
+       val coinbagId: String,
+       val gotGold: Long,
+       val status: Int,
+       val alreadyOpened: Boolean,
+       val errorMsg: String? = null
+   )
+
+   data class ProcessStoryFatigueResult(
+       val code: Int,
+       val isFatigued: Boolean,
+       val tipText: String? = null,
+       val eventType: Int = 0,
+       val errorMsg: String? = null
+   )
+
    companion object {
        private const val TAG = "QQPetDirectBridge"
         private const val INTERFACE_CLASS = "com.tencent.ergo.hostdelegate.pb.PetPbDelegate"
@@ -70,6 +115,21 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
             private set
         @Volatile
         var resolvedSendMethodName: String = "c"
+            private set
+        @Volatile
+        var cachedPetAttributes: PetAttributes? = null
+            private set
+        @Volatile
+        var lastFatigueDetected: Boolean = false
+            private set
+        @Volatile
+        var lastFatigueTip: String? = null
+            private set
+        @Volatile
+        var lastSelectEventsFatigued: Boolean = false
+            private set
+        @Volatile
+        var lastSelectEventsFatigueTip: String? = null
             private set
 
         fun findDelegateClass(classLoader: ClassLoader): Pair<Class<*>?, Method?> {
@@ -249,22 +309,6 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
             var total: Long? = null
             var storyId: String? = null
             if (code == 0 && data != null) {
-                try {
-                    val rspCls = classLoader.loadClass("gi5.j")
-                    val nanoCls = classLoader.loadClass("com.google.protobuf.nano.MessageNano")
-                    val mergeMethod = nanoCls.getMethod("mergeFrom", nanoCls, ByteArray::class.java)
-                    val inst = rspCls.newInstance()
-                    val parsed = mergeMethod.invoke(null, inst, data)
-                    val sb = StringBuilder("gi5.j 字段:")
-                    for (f in rspCls.declaredFields) {
-                        f.isAccessible = true
-                        val v = f.get(parsed)
-                        sb.append(" ${f.name}=").append(v)
-                    }
-                    Log.i(TAG, sb.toString())
-                } catch (t: Throwable) {
-                    Log.e(TAG, "反射 gi5.j 异常: ${t.message}")
-                }
                 val subInfo = ProtoWire.firstBytes(data, 1)
                 if (subInfo != null) {
                     val status = ProtoWire.firstVarint(subInfo, 1) ?: 0L
@@ -276,6 +320,58 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                 storyId = ProtoWire.firstString(data, 2)
             }
             callback(code, remaining, total, storyId)
+        }
+    }
+
+    /**
+     * 查询当前外出事件进行中详情与疲惫减益胶囊提示（官方 0x975f_1 / 38751 协议）
+     */
+    fun queryProcessStoryInfo(
+        storyId: String,
+        petId: String,
+        callback: (ProcessStoryFatigueResult) -> Unit
+    ) {
+        val body = ProtoWire.message()
+            .writeString(1, storyId)
+            .writeString(2, petId)
+            .writeVarint(100, 2L)
+            .toByteArray()
+
+        sendOidb("OidbSvcTrpcTcp.0x975f_1", 38751, 1, body) { code, data, errorMsg ->
+            if (code == 0 && data != null) {
+                val eventType = (ProtoWire.firstVarint(data, 5) ?: 0L).toInt()
+                val tipBytes = ProtoWire.firstBytes(data, 17)
+                val tipContent = ProtoWire.firstString(tipBytes, 2)?.trim() ?: ""
+                val tipExtra = ProtoWire.firstString(tipBytes, 3)?.trim() ?: ""
+                val tipMarkdown = ProtoWire.firstString(tipBytes, 4)?.trim() ?: ""
+
+               val allStrings = ProtoWire.extractAllStrings(data)
+               val matchedStr = listOf(tipContent, tipMarkdown, tipExtra).firstOrNull {
+                   it.contains("疲惫") || it.contains("收益减少")
+               } ?: allStrings.firstOrNull {
+                   it.contains("疲惫") || it.contains("收益减少")
+               }
+
+               val fatigued = !matchedStr.isNullOrEmpty()
+                val displayTip = matchedStr
+                    ?.replace(Regex("!\\[[^\\]]*\\]\\([^)]*\\)"), "")
+                    ?.replace(Regex("\\[[^\\]]*\\]\\([^)]*\\)"), "")
+                    ?.replace(Regex("\\s+"), " ")
+                    ?.trim()
+                    ?.ifEmpty { tipContent.ifEmpty { "疲惫，收益减少" } }
+
+               lastFatigueDetected = fatigued
+                lastFatigueTip = if (fatigued) displayTip else null
+
+                Log.i(
+                    TAG,
+                    "queryProcessStoryInfo 回包: storyId=$storyId, eventType=$eventType, fatigued=$fatigued, tip='$displayTip', rawTip=(content='$tipContent', md='$tipMarkdown')"
+                )
+                callback(ProcessStoryFatigueResult(0, fatigued, displayTip, eventType, null))
+            } else {
+                Log.w(TAG, "queryProcessStoryInfo 失败: storyId=$storyId, code=$code, err=$errorMsg")
+                callback(ProcessStoryFatigueResult(code, false, null, 0, errorMsg))
+            }
         }
     }
 
@@ -402,52 +498,224 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
     * ESubEvent: 501 (E_SUBEVENT_WASH_CLEAN_PROGRESS)
     * cleanValue: 100
     */
-   fun bath(
-       petId: String,
-       cleanValue: Int = 100,
-       callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit
-   ) {
-       var bodyBytes: ByteArray? = null
-       try {
-           val dCls = classLoader.loadClass("ci5.d")
-           val dInst = dCls.newInstance()
-           dCls.getField("a").set(dInst, petId)
-           dCls.getField("b").set(dInst, "")
-           val jCls = classLoader.loadClass("uh5.j")
-           val jInst = jCls.newInstance()
-           jCls.getField("a").set(jInst, 5000)
-           jCls.getField("b").set(jInst, 500)
-           jCls.getField("c").set(jInst, 501)
-           dCls.getField("c").set(dInst, jInst)
-           val bCls = classLoader.loadClass("ci5.b")
-           val bInst = bCls.newInstance()
-           bCls.getField("d").set(bInst, cleanValue)
-           dCls.getField("e").set(dInst, bInst)
-           val nanoCls = classLoader.loadClass("com.google.protobuf.nano.MessageNano")
-           val toByteArrayMethod = nanoCls.getMethod("toByteArray", nanoCls)
-           bodyBytes = toByteArrayMethod.invoke(null, dInst) as ByteArray
-           Log.d(TAG, "通过 ci5.d 反射构造清洁上报包成功")
-       } catch (t: Throwable) {
-           Log.w(TAG, "ci5.d 反射未就绪: ${t.message}，使用 ProtoWire 编码")
-       }
+  fun bath(
+      petId: String,
+      cleanValue: Int = 100,
+      stage: Int = 2,
+      callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit
+  ) {
+      var bodyBytes: ByteArray? = null
+      val now = System.currentTimeMillis()
+      try {
+          val dCls = classLoader.loadClass("ci5.d")
+          val dInst = dCls.newInstance()
+          dCls.getField("a").set(dInst, petId)
+          dCls.getField("b").set(dInst, "")
+          val jCls = classLoader.loadClass("uh5.j")
+          val jInst = jCls.newInstance()
+          jCls.getField("a").set(jInst, 5000)
+          jCls.getField("b").set(jInst, 500)
+          jCls.getField("c").set(jInst, 501)
+          dCls.getField("c").set(dInst, jInst)
+          val iCls = classLoader.loadClass("uh5.i")
+          val iInst = iCls.newInstance()
+          iCls.getField("b").set(iInst, now - 3000L)
+          iCls.getField("h").set(iInst, 1)
+          dCls.getField("d").set(dInst, iInst)
+          val bCls = classLoader.loadClass("ci5.b")
+          val bInst = bCls.newInstance()
+          bCls.getField("d").set(bInst, cleanValue)
+          dCls.getField("e").set(dInst, bInst)
+          val nanoCls = classLoader.loadClass("com.google.protobuf.nano.MessageNano")
+          val toByteArrayMethod = nanoCls.getMethod("toByteArray", nanoCls)
+          bodyBytes = toByteArrayMethod.invoke(null, dInst) as ByteArray
+          Log.d(TAG, "通过 ci5.d 反射构造清洁上报包成功 (cleanValue=$cleanValue, stage=$stage)")
+      } catch (t: Throwable) {
+          Log.w(TAG, "ci5.d 反射未就绪: ${t.message}，使用 ProtoWire 编码")
+      }
 
-       if (bodyBytes == null) {
-           val pathBytes = ProtoWire.message()
-               .writeVarint(1, 5000L)
-               .writeVarint(2, 500L)
-               .writeVarint(3, 501L)
-               .toByteArray()
-           val extBytes = ProtoWire.message()
-               .writeVarint(4, cleanValue.toLong())
-               .toByteArray()
-           bodyBytes = ProtoWire.message()
-               .writeString(1, petId)
-               .writeString(2, "")
-               .writeBytes(3, pathBytes)
-               .writeBytes(5, extBytes)
-               .toByteArray()
+      if (bodyBytes == null) {
+          val pathBytes = ProtoWire.message()
+              .writeVarint(1, 5000L)
+              .writeVarint(2, 500L)
+              .writeVarint(3, 501L)
+              .toByteArray()
+          val exeExtBytes = ProtoWire.message()
+              .writeVarint(7, now - 3000L)
+              .writeVarint(13, 1L)
+              .toByteArray()
+          val extBytes = ProtoWire.message()
+              .writeVarint(5, cleanValue.toLong())
+              .toByteArray()
+          bodyBytes = ProtoWire.message()
+              .writeString(1, petId)
+              .writeString(2, "")
+              .writeBytes(3, pathBytes)
+              .writeBytes(4, exeExtBytes)
+              .writeBytes(5, extBytes)
+              .toByteArray()
+      }
+      sendOidb("OidbSvcTrpcTcp.0x96a6_1", 38566, 1, bodyBytes) { code, data, err -> callback(code, data, err) }
+  }
+
+   /**
+    * 查询香皂商品配置 (官方 0x9bf1_1 / 39921 协议)
+    */
+   fun fetchBathItemConfig(callback: (code: Int, items: List<BathItemConfig>) -> Unit) {
+       sendOidb("OidbSvcTrpcTcp.0x9bf1_1", 39921, 1, ByteArray(0)) { code, data, err ->
+           val list = mutableListOf<BathItemConfig>()
+           if (code == 0 && data != null) {
+               val itemBytesList = ProtoWire.allBytes(data, 1)
+               for (bBytes in itemBytesList) {
+                   val name = ProtoWire.firstString(bBytes, 1) ?: "香皂片"
+                   val itemId = ProtoWire.firstString(bBytes, 2) ?: ""
+                   val gold = (ProtoWire.firstVarint(bBytes, 5) ?: 5L).toInt()
+                   val cleanVal = (ProtoWire.firstVarint(bBytes, 6) ?: 10L).toInt()
+                   val defBuy = (ProtoWire.firstVarint(bBytes, 8) ?: 5L).toInt()
+                   if (itemId.isNotEmpty()) {
+                       list.add(BathItemConfig(itemId, name, gold, cleanVal, defBuy))
+                   }
+               }
+               Log.i(TAG, "🧼 fetchBathItemConfig 成功: count=${list.size}, items=$list")
+           } else {
+               Log.w(TAG, "🧼 fetchBathItemConfig 失败: code=$code, err=$err")
+           }
+           callback(code, list)
        }
-       sendOidb("OidbSvcTrpcTcp.0x96a6_1", 38566, 1, bodyBytes) { code, data, err -> callback(code, data, err) }
+   }
+
+   /**
+    * 查询背包香皂库存 (官方 0x9bf2_1 / 39922 协议)
+    */
+   fun fetchBathInventory(callback: (code: Int, balances: Map<String, Int>) -> Unit) {
+       sendOidb("OidbSvcTrpcTcp.0x9bf2_1", 39922, 1, ByteArray(0)) { code, data, err ->
+           val map = linkedMapOf<String, Int>()
+           if (code == 0 && data != null) {
+               val invInfoBytes = ProtoWire.firstBytes(data, 1)
+               val itemBytesList = ProtoWire.allBytes(invInfoBytes, 1)
+               for (cBytes in itemBytesList) {
+                   val itemId = ProtoWire.firstString(cBytes, 1) ?: ""
+                   val balance = (ProtoWire.firstVarint(cBytes, 2) ?: 0L).toInt()
+                   if (itemId.isNotEmpty()) {
+                       map[itemId] = balance
+                   }
+               }
+               Log.i(TAG, "🧼 fetchBathInventory 成功: balances=$map")
+           } else {
+               Log.w(TAG, "🧼 fetchBathInventory 失败: code=$code, err=$err")
+           }
+           callback(code, map)
+       }
+   }
+
+   /**
+    * 自动购买香皂 (官方 0x9bd0_0 / 39888 协议, appId=355, scene=21)
+    */
+   fun buyBathItem(
+       petId: String,
+       itemId: String,
+       count: Int = 5,
+       callback: (code: Int, orderResult: Int, errorMsg: String?) -> Unit
+   ) {
+       val itemIdLong = itemId.toLongOrNull() ?: 2010104L
+       val userInfoBytes = ProtoWire.message()
+           .writeVarint(1, 1L)
+           .writeVarint(2, 1001L)
+           .writeString(3, petId)
+           .toByteArray()
+       val mallItemBytes = ProtoWire.message()
+           .writeVarint(1, 355L)
+           .writeVarint(2, itemIdLong)
+           .writeVarint(3, count.toLong())
+           .toByteArray()
+       val bodyBytes = ProtoWire.message()
+           .writeBytes(1, userInfoBytes)
+           .writeVarint(2, 1001L)
+           .writeBytes(3, mallItemBytes)
+           .writeVarint(4, 21L)
+           .toByteArray()
+
+       sendOidb("OidbSvcTrpcTcp.0x9bd0_0", 39888, 0, bodyBytes) { code, data, err ->
+           val orderResult = if (code == 0 && data != null) {
+               (ProtoWire.firstVarint(data, 1) ?: 0L).toInt()
+           } else 0
+           Log.i(TAG, "🛒 buyBathItem (itemId=$itemId, count=$count) 回包: code=$code, orderResult=$orderResult, err=$err")
+           callback(code, orderResult, err)
+       }
+   }
+
+   /**
+    * 执行单次搓澡消耗香皂 (官方 0x9bf3_1 / 39923 真实增加清洁度协议)
+    */
+   fun doBathOnce(
+       petId: String,
+       itemId: String,
+       useNum: Int = 1,
+       callback: (BathResult) -> Unit
+   ) {
+       val bodyBytes = ProtoWire.message()
+           .writeString(1, petId)
+           .writeString(2, itemId)
+           .writeVarint(3, useNum.toLong())
+           .writeString(4, "")
+           .toByteArray()
+
+       sendOidb("OidbSvcTrpcTcp.0x9bf3_1", 39923, 1, bodyBytes) { code, data, err ->
+           if (code == 0 && data != null) {
+               val newClean = (ProtoWire.firstVarint(data, 1) ?: 0L).toInt()
+               val addedClean = (ProtoWire.firstVarint(data, 2) ?: 0L).toInt()
+               val remainBalance = (ProtoWire.firstVarint(data, 3) ?: 0L).toInt()
+               val isFullClean = (ProtoWire.firstVarint(data, 4) ?: 0L) != 0L
+               cachedPetAttributes?.let { old ->
+                   cachedPetAttributes = old.copy(clean = newClean.toFloat())
+               }
+               Log.i(TAG, "🧼 doBathOnce 成功: newClean=$newClean, added=$addedClean, remain=$remainBalance, isFull=$isFullClean")
+               callback(BathResult(0, newClean, addedClean, remainBalance, isFullClean, null))
+           } else {
+               Log.w(TAG, "🧼 doBathOnce 失败: code=$code, err=$err")
+               callback(BathResult(code, -1, 0, -1, false, err))
+           }
+       }
+   }
+
+   /**
+    * 权威查询宠物实时三围属性 (官方 0x96f2_1 / 38642 协议)
+    * Tag 1 (displayValue): Tag 1 = feeling(心情), Tag 2 = hunger(体力), Tag 3 = clean(清洁)
+    */
+   fun queryPetAttributes(petId: String, callback: (code: Int, attrs: PetAttributes?) -> Unit) {
+       val bodyBytes = ProtoWire.message()
+           .writeString(1, petId)
+           .toByteArray()
+       sendOidb("OidbSvcTrpcTcp.0x96f2_1", 38642, 1, bodyBytes) { code, data, err ->
+           if (code == 0 && data != null) {
+               val displayBytes = ProtoWire.firstBytes(data, 1)
+               if (displayBytes != null) {
+                   val feelingBytes = ProtoWire.firstBytes(displayBytes, 1)
+                   val hungerBytes = ProtoWire.firstBytes(displayBytes, 2)
+                   val cleanBytes = ProtoWire.firstBytes(displayBytes, 3)
+
+                   val moodCur = if (feelingBytes != null) (ProtoWire.firstFloat(feelingBytes, 3) ?: 0f) else 0f
+                   val energyMax = if (hungerBytes != null) (ProtoWire.firstFloat(hungerBytes, 2) ?: 100f) else 100f
+                   val energyCur = if (hungerBytes != null) (ProtoWire.firstFloat(hungerBytes, 3) ?: 0f) else 0f
+                   val cleanMax = if (cleanBytes != null) (ProtoWire.firstFloat(cleanBytes, 2) ?: 100f) else 100f
+                   val cleanCur = if (cleanBytes != null) (ProtoWire.firstFloat(cleanBytes, 3) ?: 0f) else 0f
+
+                   val attrs = PetAttributes(
+                       energy = energyCur,
+                       maxEnergy = if (energyMax > 0f) energyMax else 100f,
+                       clean = cleanCur,
+                       maxClean = if (cleanMax > 0f) cleanMax else 100f,
+                       mood = moodCur
+                   )
+                   cachedPetAttributes = attrs
+                   Log.i(TAG, "📊 [0x96f2_1] 实时三围: 体力=${energyCur.toInt()}/${attrs.maxEnergy.toInt()}, 清洁=${cleanCur.toInt()}/${attrs.maxClean.toInt()}, 心情=${moodCur.toInt()}")
+                   callback(0, attrs)
+                   return@sendOidb
+               }
+           }
+           Log.w(TAG, "📊 [0x96f2_1] 查询实时三围失败: code=$code, err=$err")
+           callback(code, cachedPetAttributes)
+       }
    }
 
    /**
@@ -518,12 +786,14 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
            }
            if (energy >= 0f || clean >= 0f) {
                Log.d(TAG, "实时读取到宠物属性: energy=$energy/$maxEnergy, clean=$clean/$maxClean, mood=$mood")
-               return PetAttributes(energy, maxEnergy, clean, maxClean, mood)
+               val attrs = PetAttributes(energy, maxEnergy, clean, maxClean, mood)
+               cachedPetAttributes = attrs
+               return attrs
            }
        } catch (t: Throwable) {
            Log.w(TAG, "反射读取宠物属性异常: ${t.message}")
        }
-       return null
+       return cachedPetAttributes
    }
 
    /**
@@ -722,6 +992,7 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         sendOidb("OidbSvcTrpcTcp.0x9ab2_1", 39602, 1, body) { code, data, errorMsg ->
             if (code == 0 && data != null) {
                 val list = mutableListOf<SelectEvent>()
+                var foundFatigueTip: String? = null
                 val itemBytesList = ProtoWire.allBytes(data, 1)
                 for (itemBytes in itemBytesList) {
                     val name = ProtoWire.firstString(itemBytes, 1) ?: ""
@@ -731,11 +1002,34 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                     val cost = ProtoWire.firstString(itemBytes, 6) ?: ""
                     val costTime = ProtoWire.firstString(itemBytes, 7) ?: ""
                     val reward = ProtoWire.firstString(itemBytes, 8) ?: ""
-                    Log.d(TAG, "[$eventType-EventItem] name='$name', sub=$sub, can=$can, level=$level, cost='$cost', time='$costTime', reward='$reward'")
-                    if (name.isNotEmpty() && sub > 0L) {
-                        list.add(SelectEvent(name, sub, can, level, cost, costTime, reward))
+                    val rewardExtra = ProtoWire.firstString(itemBytes, 9) ?: ""
+                    val eventTips = ProtoWire.firstString(itemBytes, 17) ?: ""
+                    val isOwnerNeedCare = (ProtoWire.firstVarint(itemBytes, 18) ?: 0L) != 0L
+                    if (foundFatigueTip == null) {
+                        val hit = listOf(rewardExtra, eventTips, reward).firstOrNull {
+                            it.contains("疲惫") || it.contains("收益减少")
+                        }
+                        if (hit != null) foundFatigueTip = hit
                     }
-                }
+                    Log.d(TAG, "[$eventType-EventItem] name='$name', sub=$sub, can=$can, level=$level, cost='$cost', time='$costTime', reward='$reward', extra='$rewardExtra', tips='$eventTips', needCare=$isOwnerNeedCare")
+                   if (name.isNotEmpty() && sub > 0L) {
+                       list.add(SelectEvent(name, sub, can, level, cost, costTime, reward, rewardExtra, eventTips, isOwnerNeedCare))
+                   }
+               }
+               if (foundFatigueTip == null) {
+                    val rawTip = ProtoWire.extractAllStrings(data).firstOrNull {
+                        it.contains("疲惫") || it.contains("收益减少")
+                    }
+                    if (rawTip != null) {
+                        foundFatigueTip = rawTip
+                            .replace(Regex("!\\[[^\\]]*\\]\\([^)]*\\)"), "")
+                            .replace(Regex("\\[[^\\]]*\\]\\([^)]*\\)"), "")
+                            .replace(Regex("\\s+"), " ")
+                            .trim()
+                    }
+               }
+               lastSelectEventsFatigued = !foundFatigueTip.isNullOrEmpty()
+                lastSelectEventsFatigueTip = foundFatigueTip
                 Log.i(TAG, "querySelectEvents 回包: eventType=$eventType, stage=$schoolStage, career=$careerType, 解析到 ${list.size} 个可用事件")
                 callback(0, list, data, null)
             } else {
@@ -775,16 +1069,26 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                         descSb.append(text)
                     }
 
-                    val friendPetBytes = ProtoWire.firstBytes(itemBytes, 7)
-                    var petId = ""
-                    var canLikeBack = true
-                    if (friendPetBytes != null) {
-                        val profileBytes = ProtoWire.firstBytes(friendPetBytes, 1)
-                        petId = ProtoWire.firstString(profileBytes, 101) ?: ""
-                        canLikeBack = (ProtoWire.firstVarint(friendPetBytes, 8) ?: 0L) != 1L
-                    }
-                    if (uin > 0L) {
-                        memberList.add(LikeMember(uin, nick, headerUrl, ts, descSb.toString(), canLikeBack, petId))
+                   val friendPetBytes = ProtoWire.firstBytes(itemBytes, 7)
+                   var petId = ""
+                   var canLikeBack = true
+                   if (friendPetBytes != null) {
+                       val profileBytes = ProtoWire.firstBytes(friendPetBytes, 1)
+                       petId = ProtoWire.firstString(profileBytes, 101) ?: ""
+                   }
+
+                   // 检查条目自身的 Tag 6 (SparkBrief) 或 Tag 7 内嵌的 Tag 10 (SparkBrief)
+                   val sparkBriefBytes = ProtoWire.firstBytes(itemBytes, 6)
+                       ?: if (friendPetBytes != null) ProtoWire.firstBytes(friendPetBytes, 10) else null
+                   if (sparkBriefBytes != null) {
+                       // Tag 10 为 selfLikedToday (Boolean: 1 代表今日已踩过)
+                       val selfLikedToday = (ProtoWire.firstVarint(sparkBriefBytes, 10) ?: 0L) != 0L
+                       canLikeBack = !selfLikedToday
+                   } else if (friendPetBytes != null) {
+                       canLikeBack = (ProtoWire.firstVarint(friendPetBytes, 8) ?: 0L) != 1L
+                   }
+                   if (uin > 0L) {
+                       memberList.add(LikeMember(uin, nick, headerUrl, ts, descSb.toString(), canLikeBack, petId))
                     }
                 }
                 val hasMore = (ProtoWire.firstVarint(data, 2) ?: 0L) != 0L
@@ -834,6 +1138,118 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                 alreadyLiked = (ProtoWire.firstVarint(data, 2) ?: 0L) != 0L
             }
             callback(code, alreadyLiked, likeCount, data, errorMsg)
+        }
+    }
+
+    /**
+     * 拉取好友宠物列表并提取携带福袋 (CoinBag) 的好友（官方 0x985d_0 / 39005 协议）
+     */
+    fun fetchFriendCoinBags(
+        cookie: String = "",
+        callback: (
+            code: Int,
+            bags: List<FriendCoinBagInfo>,
+            totalFriendsInPage: Int,
+            hasMore: Boolean,
+            nextCookie: String,
+            errorMsg: String?
+        ) -> Unit
+    ) {
+        val body = ProtoWire.message()
+            .writeString(1, cookie)
+            .writeVarint(2, 1L)
+            .writeVarint(3, 0L)
+            .toByteArray()
+
+        sendOidb("OidbSvcTrpcTcp.0x985d_0", 39005, 0, body) { code, data, errorMsg ->
+            if (code == 0 && data != null) {
+                val bagList = mutableListOf<FriendCoinBagInfo>()
+                val allFriendNodes = mutableListOf<ByteArray>()
+                allFriendNodes.addAll(ProtoWire.allBytes(data, 1))
+                ProtoWire.firstBytes(data, 6)?.let { allFriendNodes.add(it) }
+
+                for (nodeBytes in allFriendNodes) {
+                    val profileBytes = ProtoWire.firstBytes(nodeBytes, 1)
+                    val petNick = ProtoWire.firstString(profileBytes, 1) ?: ""
+                    val friendPetId = ProtoWire.firstString(profileBytes, 8)
+                        ?: ProtoWire.firstString(profileBytes, 101)
+                        ?: ""
+
+                    val userBytes = ProtoWire.firstBytes(nodeBytes, 2)
+                    val friendUin = ProtoWire.firstVarint(userBytes, 1) ?: 0L
+                    val friendNick = ProtoWire.firstString(userBytes, 2) ?: ""
+
+                    val coinBagBytes = ProtoWire.firstBytes(nodeBytes, 21)
+                    val coinbagId = ProtoWire.firstString(coinBagBytes, 1)?.trim() ?: ""
+                    if (coinbagId.isNotEmpty()) {
+                        bagList.add(
+                            FriendCoinBagInfo(
+                                friendUin = friendUin,
+                                friendNick = friendNick,
+                                friendPetId = friendPetId,
+                                petNick = petNick,
+                                coinbagId = coinbagId
+                            )
+                        )
+                    }
+                }
+                val nextCookie = ProtoWire.firstString(data, 2) ?: ""
+                val hasMore = (ProtoWire.firstVarint(data, 3) ?: 0L) != 0L
+                Log.i(
+                    TAG,
+                    "fetchFriendCoinBags 回包: 本页好友=${allFriendNodes.size}, 发现福袋=${bagList.size}, hasMore=$hasMore"
+                )
+                callback(0, bagList, allFriendNodes.size, hasMore, nextCookie, null)
+            } else {
+                Log.w(TAG, "fetchFriendCoinBags 失败: code=$code, err=$errorMsg")
+                callback(code, emptyList(), 0, false, "", errorMsg)
+            }
+        }
+    }
+
+    /**
+     * 拆取/领取好友福袋金币（官方 0x9d71_0 / 40305 协议）
+     */
+    fun snatchCoinBag(
+        ownPetId: String,
+        coinbagId: String,
+        callback: (SnatchCoinBagResult) -> Unit
+    ) {
+        val body = ProtoWire.message()
+            .writeString(1, ownPetId)
+            .writeString(2, "")
+            .writeString(3, coinbagId)
+            .toByteArray()
+
+        sendOidb("OidbSvcTrpcTcp.0x9d71_0", 40305, 0, body) { code, data, errorMsg ->
+            if (code == 0 && data != null) {
+                val detailBytes = ProtoWire.firstBytes(data, 1)
+                val bagBytes = ProtoWire.firstBytes(detailBytes, 1)
+                val status = (ProtoWire.firstVarint(bagBytes, 5) ?: 0L).toInt()
+                val alreadyOpened = (ProtoWire.firstVarint(bagBytes, 31) ?: 0L) != 0L
+
+                val snatchInfoBytes = ProtoWire.firstBytes(data, 2)
+                var gotGold = ProtoWire.firstVarint(snatchInfoBytes, 4) ?: 0L
+                if (gotGold <= 0L && detailBytes != null) {
+                    val snatchList = ProtoWire.allBytes(detailBytes, 2)
+                    var sum = 0L
+                    for (sBytes in snatchList) {
+                        val pid = ProtoWire.firstString(sBytes, 2) ?: ""
+                        if (pid == ownPetId) {
+                            sum += (ProtoWire.firstVarint(sBytes, 4) ?: 0L)
+                        }
+                    }
+                    gotGold = sum
+                }
+                Log.i(
+                    TAG,
+                    "snatchCoinBag 成功: bagId=$coinbagId, gotGold=$gotGold, status=$status, alreadyOpened=$alreadyOpened"
+                )
+                callback(SnatchCoinBagResult(0, coinbagId, gotGold, status, alreadyOpened, null))
+            } else {
+                Log.w(TAG, "snatchCoinBag 回包: bagId=$coinbagId, code=$code, err=$errorMsg")
+                callback(SnatchCoinBagResult(code, coinbagId, 0L, 0, false, errorMsg))
+            }
         }
     }
 }

@@ -13,6 +13,8 @@ object PreferencesHelper {
    const val KEY_ADVENTURE = "key_adventure"
    const val KEY_SETTLE = "key_settle"
     const val KEY_LIKE_BACK = "key_like_back"
+    const val KEY_CLAIM_COINBAG = "key_claim_coinbag"
+    const val KEY_FATIGUE_TO_ADVENTURE = "key_fatigue_to_adventure"
     const val KEY_STUDY_MODE = "key_study_mode"
     const val KEY_WORK_MODE = "key_work_mode"
     const val KEY_SCHOOL_STAGE = "key_custom_school_stage"
