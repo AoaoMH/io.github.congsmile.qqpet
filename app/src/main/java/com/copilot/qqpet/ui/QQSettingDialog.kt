@@ -23,6 +23,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.HorizontalScrollView
@@ -42,7 +43,7 @@ import kotlinx.coroutines.launch
  * 物理尺寸：51dp x 31dp (符合 iOS Human Interface Guidelines)
  * 开启背景：#34C759，关闭背景：#E9E9EB，滑块：纯白圆润 + 柔和微投影
  */
-class AppleSwitchView(context: Context) : View(context) {
+class AppleSwitchView(context: Context, private val isNight: Boolean = false) : View(context) {
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -104,8 +105,12 @@ class AppleSwitchView(context: Context) : View(context) {
         val r = h / 2f
         rect.set(0f, 0f, w, h)
 
-        val offR = 0xE9; val offG = 0xE9; val offB = 0xEB
-        val onR = 0x34; val onG = 0xC7; val onB = 0x59
+        val offR = if (isNight) 0x39 else 0xE9
+        val offG = if (isNight) 0x39 else 0xE9
+        val offB = if (isNight) 0x3D else 0xEB
+        val onR = if (isNight) 0x30 else 0x34
+        val onG = if (isNight) 0xD1 else 0xC7
+        val onB = if (isNight) 0x58 else 0x59
 
         val curR = (offR + (onR - offR) * progress).toInt()
         val curG = (offG + (onG - offG) * progress).toInt()
@@ -169,6 +174,7 @@ class AppleSegmentedControl(
     initialItems: List<Any>,
     private var selectedIndex: Int = 0,
     private val isScrollable: Boolean = false,
+    private val isNight: Boolean = false,
     private val onItemSelected: (Int) -> Unit
 ) : LinearLayout(context) {
 
@@ -179,7 +185,7 @@ class AppleSegmentedControl(
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = GradientDrawable().apply {
-            setColor(Color.parseColor("#EBEBED"))
+            setColor(if (isNight) Color.parseColor("#2C2C2E") else Color.parseColor("#EBEBED"))
             cornerRadius = dp(8f)
         }
         setPadding(dp(2.5f).toInt(), dp(2.5f).toInt(), dp(2.5f).toInt(), dp(2.5f).toInt())
@@ -272,11 +278,13 @@ class AppleSegmentedControl(
             val isSel = (i == selectedIndex)
             if (isSel) {
                 tv.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-                tv.setTextColor(Color.parseColor("#1C1C1E"))
+                tv.setTextColor(if (isNight) Color.WHITE else Color.parseColor("#1C1C1E"))
                 tv.background = GradientDrawable().apply {
-                    setColor(Color.WHITE)
+                    setColor(if (isNight) Color.parseColor("#636366") else Color.WHITE)
                     cornerRadius = dp(6.5f)
-                    setStroke(dp(0.5f).toInt(), Color.parseColor("#15000000"))
+                    if (!isNight) {
+                        setStroke(dp(0.5f).toInt(), Color.parseColor("#15000000"))
+                    }
                 }
             } else {
                 tv.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
@@ -310,19 +318,208 @@ class AppleSegmentedControl(
  * 3. 物理触感与弹簧动效：触控瞬间微缩反馈 (Response)，分段器平滑切换，子设置平滑展开/折叠
  * 4. 0ms 秒开无白屏：秒级复用内存数据渲染，后台静默异步刷新校验
  */
+data class ThemeColors(
+    val isNight: Boolean,
+    val pageBg: Int,
+    val cardBg: Int,
+    val cardBorder: Int,
+    val primaryText: Int,
+    val secondaryText: Int,
+    val sectionHeaderText: Int,
+    val chevronText: Int,
+    val dividerColor: Int,
+    val badgeBg: Int,
+    val badgeText: Int,
+    val actionPrimaryText: Int,
+    val actionBlueText: Int,
+    val actionRedText: Int
+) {
+    companion object {
+        fun get(isNight: Boolean): ThemeColors {
+            return if (isNight) {
+                ThemeColors(
+                    isNight = true,
+                    pageBg = Color.parseColor("#000000"),
+                    cardBg = Color.parseColor("#1C1C1E"),
+                    cardBorder = Color.parseColor("#26FFFFFF"),
+                    primaryText = Color.parseColor("#FFFFFF"),
+                    secondaryText = Color.parseColor("#8E8E93"),
+                    sectionHeaderText = Color.parseColor("#8E8E93"),
+                    chevronText = Color.parseColor("#545458"),
+                    dividerColor = Color.parseColor("#2C2C2E"),
+                    badgeBg = Color.parseColor("#173420"),
+                    badgeText = Color.parseColor("#32D74B"),
+                    actionPrimaryText = Color.parseColor("#FFFFFF"),
+                    actionBlueText = Color.parseColor("#0A84FF"),
+                    actionRedText = Color.parseColor("#FF453A")
+                )
+            } else {
+                ThemeColors(
+                    isNight = false,
+                    pageBg = Color.parseColor("#F2F2F7"),
+                    cardBg = Color.parseColor("#FFFFFF"),
+                    cardBorder = Color.parseColor("#14000000"),
+                    primaryText = Color.parseColor("#1C1C1E"),
+                    secondaryText = Color.parseColor("#8E8E93"),
+                    sectionHeaderText = Color.parseColor("#6C6C70"),
+                    chevronText = Color.parseColor("#C7C7CC"),
+                    dividerColor = Color.parseColor("#E5E5EA"),
+                    badgeBg = Color.parseColor("#EBF9EE"),
+                    badgeText = Color.parseColor("#34C759"),
+                    actionPrimaryText = Color.parseColor("#1C1C1E"),
+                    actionBlueText = Color.parseColor("#007AFF"),
+                    actionRedText = Color.parseColor("#FF3B30")
+                )
+            }
+        }
+    }
+}
+
 object QQSettingDialog {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    fun isNightTheme(context: Context): Boolean {
+        // 1. 优先尝试 QQ 官方全局 QQTheme.isNowThemeIsNight()
+        try {
+            val qqThemeClass = context.classLoader.loadClass("com.tencent.mobileqq.utils.QQTheme")
+            val method = qqThemeClass.getMethod("isNowThemeIsNight")
+            val res = method.invoke(null) as? Boolean
+            if (res != null) return res
+        } catch (_: Throwable) {}
+
+        // 2. 备选尝试 ThemeUtil.isNowThemeIsNight
+        try {
+            val themeUtilClass = context.classLoader.loadClass("com.tencent.mobileqq.vas.theme.api.ThemeUtil")
+            for (m in themeUtilClass.methods) {
+                if (m.name == "isNowThemeIsNight" && m.parameterTypes.isEmpty()) {
+                    val res = m.invoke(null) as? Boolean
+                    if (res != null) return res
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // 3. 兜底回退：Android 系统 UI Mode (跟随系统深色模式)
+        return try {
+            (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun showConfirmDialog(
+        context: Context,
+        colors: ThemeColors,
+        title: String,
+        message: String,
+        confirmText: String = "确认执行",
+        isDestructive: Boolean = false,
+        onConfirm: () -> Unit
+    ) {
+        val dialog = Dialog(context)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(if (colors.isNight) Color.parseColor("#252528") else Color.WHITE)
+                cornerRadius = dp(context, 14).toFloat()
+                if (colors.isNight) {
+                    setStroke(1, Color.parseColor("#26FFFFFF"))
+                }
+            }
+            setPadding(0, dp(context, 20), 0, 0)
+        }
+
+        val titleTv = TextView(context).apply {
+            text = title
+            textSize = 17f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.primaryText)
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 22), 0, dp(context, 22), dp(context, 8))
+        }
+        card.addView(titleTv)
+
+        val msgTv = TextView(context).apply {
+            text = message
+            textSize = 13.5f
+            setTextColor(if (colors.isNight) Color.parseColor("#AEAEB2") else Color.parseColor("#3C3C43"))
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 22), 0, dp(context, 22), dp(context, 18))
+            setLineSpacing(dp(context, 2).toFloat(), 1.15f)
+        }
+        card.addView(msgTv)
+
+        card.addView(View(context).apply {
+            setBackgroundColor(colors.dividerColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+        })
+
+        val btnRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 46))
+        }
+
+        val cancelTv = TextView(context).apply {
+            text = "取消"
+            textSize = 16.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(if (colors.isNight) Color.parseColor("#0A84FF") else Color.parseColor("#007AFF"))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f)
+            applyTouchSpringEffect(this)
+            setOnClickListener {
+                dialog.dismiss()
+            }
+        }
+        btnRow.addView(cancelTv)
+
+        btnRow.addView(View(context).apply {
+            setBackgroundColor(colors.dividerColor)
+            layoutParams = LinearLayout.LayoutParams(1, LinearLayout.LayoutParams.MATCH_PARENT)
+        })
+
+        val confirmColor = if (isDestructive) colors.actionRedText else colors.actionBlueText
+        val confirmTv = TextView(context).apply {
+            text = confirmText
+            textSize = 16.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(confirmColor)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f)
+            applyTouchSpringEffect(this)
+            setOnClickListener {
+                dialog.dismiss()
+                onConfirm()
+            }
+        }
+        btnRow.addView(confirmTv)
+        card.addView(btnRow)
+
+        dialog.setContentView(card)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            val width = (context.resources.displayMetrics.widthPixels * 0.78f).toInt()
+            setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setDimAmount(0.42f)
+        }
+        dialog.show()
+    }
 
     @SuppressLint("SetTextI18n", "ClickableViewAccessibility")
     fun show(activity: Activity, engine: PetAdventureEngine?) {
         val context = activity
         var dialogInstance: Dialog? = null
+        val isNight = isNightTheme(context)
+        val colors = ThemeColors.get(isNight)
 
-        // 根布局：全屏浅灰底色 (#F2F2F7, iOS 系统标准)
+        // 根布局：全屏底色 (日间 #F2F2F7，夜间 #000000)
         val fullRoot = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#F2F2F7"))
+            setBackgroundColor(colors.pageBg)
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -333,7 +530,7 @@ object QQSettingDialog {
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#F2F2F7"))
+            setBackgroundColor(colors.pageBg)
             setPadding(dp(context, 12), dp(context, 8), dp(context, 16), dp(context, 10))
         }
 
@@ -352,14 +549,14 @@ object QQSettingDialog {
             text = "‹"
             textSize = 24f
             typeface = Typeface.create("sans-serif-light", Typeface.BOLD)
-            setTextColor(Color.parseColor("#007AFF"))
+            setTextColor(if (colors.isNight) Color.parseColor("#0A84FF") else Color.parseColor("#007AFF"))
             setPadding(0, 0, dp(context, 2), dp(context, 2))
         }
         val backText = TextView(context).apply {
             text = "设置"
             textSize = 17f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Color.parseColor("#007AFF"))
+            setTextColor(if (colors.isNight) Color.parseColor("#0A84FF") else Color.parseColor("#007AFF"))
         }
         backBtn.addView(backArrow)
         backBtn.addView(backText)
@@ -370,7 +567,7 @@ object QQSettingDialog {
             text = "Q宠后台伴侣"
             textSize = 17f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.parseColor("#1C1C1E"))
+            setTextColor(colors.primaryText)
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
         }
@@ -381,10 +578,10 @@ object QQSettingDialog {
             text = "● 运行中"
             textSize = 11.5f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.parseColor("#34C759"))
+            setTextColor(colors.badgeText)
             setPadding(dp(context, 8), dp(context, 3), dp(context, 8), dp(context, 3))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#EBF9EE"))
+                setColor(colors.badgeBg)
                 cornerRadius = dp(context, 10).toFloat()
             }
         }
@@ -393,7 +590,7 @@ object QQSettingDialog {
 
         // 顶栏底部分割线
         val topDivider = View(context).apply {
-            setBackgroundColor(Color.parseColor("#E5E5EA"))
+            setBackgroundColor(colors.dividerColor)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
         }
         fullRoot.addView(topDivider)
@@ -408,8 +605,11 @@ object QQSettingDialog {
         val statusCard = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(Color.WHITE)
+                setColor(colors.cardBg)
                 cornerRadius = dp(context, 12).toFloat()
+                if (colors.isNight) {
+                    setStroke(1, colors.cardBorder)
+                }
             }
             setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 14))
             layoutParams = LinearLayout.LayoutParams(
@@ -424,7 +624,7 @@ object QQSettingDialog {
             text = PetAdventureEngine.formatLiveStatusText()
             textSize = 16f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.parseColor("#1C1C1E"))
+            setTextColor(colors.primaryText)
         }
        val statusAttributesText = TextView(context).apply {
            val d = PetAdventureEngine.cachedSchoolDetails
@@ -434,7 +634,7 @@ object QQSettingDialog {
            val liveCare = if (attrs != null && attrs.energy >= 0f) " · 体力 ${attrs.energy.toInt()} 清洁 ${attrs.clean.toInt()}" else ""
            text = "$attrPrefix$liveCare"
            textSize = 13f
-           setTextColor(Color.parseColor("#8E8E93"))
+           setTextColor(colors.secondaryText)
            setPadding(0, dp(context, 4), 0, 0)
        }
         statusCard.addView(statusActionText)
@@ -449,7 +649,7 @@ object QQSettingDialog {
                 text = title
                 textSize = 13f
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                setTextColor(Color.parseColor("#6C6C70"))
+                setTextColor(colors.sectionHeaderText)
                 setPadding(dp(context, 4), 0, 0, dp(context, 7))
             }
             contentLayout.addView(hView)
@@ -459,8 +659,11 @@ object QQSettingDialog {
             return LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 background = GradientDrawable().apply {
-                    setColor(Color.WHITE)
+                    setColor(colors.cardBg)
                     cornerRadius = dp(context, 12).toFloat()
+                    if (colors.isNight) {
+                        setStroke(1, colors.cardBorder)
+                    }
                 }
                 setPadding(dp(context, 16), 0, dp(context, 16), 0)
                 layoutParams = LinearLayout.LayoutParams(
@@ -474,7 +677,7 @@ object QQSettingDialog {
 
         fun createDivider(): View {
             return View(context).apply {
-                setBackgroundColor(Color.parseColor("#E5E5EA"))
+                setBackgroundColor(colors.dividerColor)
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
             }
         }
@@ -499,13 +702,13 @@ object QQSettingDialog {
             text = "进阶学力研修"
             textSize = 16f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.parseColor("#1C1C1E"))
+            setTextColor(colors.primaryText)
         }
         val currentStagePref = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
         val studySubtitle = TextView(context).apply {
             text = getSchoolStageDesc(currentStagePref)
             textSize = 13f
-            setTextColor(Color.parseColor("#8E8E93"))
+            setTextColor(colors.secondaryText)
             setPadding(0, dp(context, 2), 0, 0)
         }
         studyTextCol.addView(studyTitle)
@@ -522,13 +725,14 @@ object QQSettingDialog {
         val stageLabel = TextView(context).apply {
             text = "学园阶段"
             textSize = 12f
-            setTextColor(Color.parseColor("#8E8E93"))
+            setTextColor(colors.secondaryText)
             setPadding(0, dp(context, 4), 0, dp(context, 4))
         }
         val stageSeg = AppleSegmentedControl(
             context,
             listOf("自适应", "初级", "中级", "高级", "进修"),
-            currentStagePref
+            currentStagePref,
+            isNight = colors.isNight
         ) { sel ->
             prefs.edit().putInt(PreferencesHelper.KEY_SCHOOL_STAGE, sel).commit()
             studySubtitle.text = getSchoolStageDesc(sel)
@@ -542,13 +746,14 @@ object QQSettingDialog {
         val subjLabel = TextView(context).apply {
             text = "专攻科目 (按官方属性加点)"
             textSize = 12f
-            setTextColor(Color.parseColor("#8E8E93"))
+            setTextColor(colors.secondaryText)
             setPadding(0, dp(context, 8), 0, dp(context, 4))
         }
         val subjSeg = AppleSegmentedControl(
             context,
             listOf("智能轮换", "智力(文科)", "力量(体育)", "魅力(艺术)"),
-            currentSubjPref
+            currentSubjPref,
+            isNight = colors.isNight
         ) { sel ->
             prefs.edit().putInt(PreferencesHelper.KEY_COURSE_SUBJECT, sel).commit()
             syncConfig(prefs, engine, context)
@@ -561,13 +766,14 @@ object QQSettingDialog {
         val durLabel = TextView(context).apply {
             text = "课时时长偏好"
             textSize = 12f
-            setTextColor(Color.parseColor("#8E8E93"))
+            setTextColor(colors.secondaryText)
             setPadding(0, dp(context, 8), 0, dp(context, 4))
         }
         val durSeg = AppleSegmentedControl(
             context,
             listOf("任意课时", "基础短课(10-45m)", "进阶长课(1-2.25h)"),
-            currentDurPref
+            currentDurPref,
+            isNight = colors.isNight
         ) { sel ->
             prefs.edit().putInt(PreferencesHelper.KEY_COURSE_DURATION, sel).commit()
             syncConfig(prefs, engine, context)
@@ -576,7 +782,7 @@ object QQSettingDialog {
         studyPanel.addView(durSeg)
 
         val studyInitialChecked = prefs.getBoolean("key_study", true)
-        val studySwitch = AppleSwitchView(context).apply {
+        val studySwitch = AppleSwitchView(context, colors.isNight).apply {
             setCheckedImmediately(studyInitialChecked)
             onCheckedChangeListener = { isChecked ->
                 prefs.edit().putBoolean("key_study", isChecked).commit()
@@ -608,7 +814,7 @@ object QQSettingDialog {
             text = "全自动打工派遣"
             textSize = 16f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            setTextColor(Color.parseColor("#1C1C1E"))
+            setTextColor(colors.primaryText)
         }
         var workPlaceOptions = buildWorkPlaceOptions(PetAdventureEngine.cachedWorkPlaces)
         val currentWorkTypePref = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
@@ -618,7 +824,7 @@ object QQSettingDialog {
             val curOption = workPlaceOptions.getOrNull(initialWorkPlaceIndex)
             text = getWorkTypeDesc(currentWorkTypePref, curOption?.title)
             textSize = 13f
-            setTextColor(Color.parseColor("#8E8E93"))
+            setTextColor(colors.secondaryText)
             setPadding(0, dp(context, 2), 0, 0)
         }
         workTextCol.addView(workTitle)
@@ -634,7 +840,7 @@ object QQSettingDialog {
         val workTypeLabel = TextView(context).apply {
             text = "打工场所 (职业小镇动态识别)"
             textSize = 12f
-            setTextColor(Color.parseColor("#8E8E93"))
+            setTextColor(colors.secondaryText)
             setPadding(0, dp(context, 4), 0, dp(context, 4))
         }
 
@@ -673,7 +879,8 @@ object QQSettingDialog {
             context,
             workPlaceOptions.map { SegmentItem(it.title, enabled = it.enabled, disabledTip = it.disabledTip) },
             initialWorkPlaceIndex,
-            isScrollable = true
+            isScrollable = true,
+            isNight = colors.isNight
         ) { sel ->
             val opt = workPlaceOptions.getOrNull(sel) ?: return@AppleSegmentedControl
             val selCareer = opt.careerId
@@ -708,13 +915,14 @@ object QQSettingDialog {
         val workDurLabel = TextView(context).apply {
             text = "打工时长偏好 (官方实测阶梯工时)"
             textSize = 12f
-            setTextColor(Color.parseColor("#8E8E93"))
+            setTextColor(colors.secondaryText)
             setPadding(0, dp(context, 8), 0, dp(context, 4))
         }
         workDurSeg = AppleSegmentedControl(
             context,
             listOf("智能挂机", "10分钟", "45分钟", "2小时", "4小时"),
-            currentWorkDurPref
+            currentWorkDurPref,
+            isNight = colors.isNight
         ) { sel ->
             prefs.edit().putInt(PreferencesHelper.KEY_WORK_DURATION, sel).commit()
             syncConfig(prefs, engine, context)
@@ -724,7 +932,7 @@ object QQSettingDialog {
         workPanel.addView(workDurSeg)
 
         val workInitialChecked = prefs.getBoolean("key_work", true)
-        val workSwitch = AppleSwitchView(context).apply {
+        val workSwitch = AppleSwitchView(context, colors.isNight).apply {
             setCheckedImmediately(workInitialChecked)
             onCheckedChangeListener = { isChecked ->
                 prefs.edit().putBoolean("key_work", isChecked).commit()
@@ -767,12 +975,12 @@ object QQSettingDialog {
                text = title
                textSize = 16f
                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-               setTextColor(Color.parseColor("#1C1C1E"))
+               setTextColor(colors.primaryText)
            }
            val dView = TextView(context).apply {
                text = desc
                textSize = 13f
-               setTextColor(Color.parseColor("#8E8E93"))
+               setTextColor(colors.secondaryText)
                setPadding(0, dp(context, 2), 0, 0)
            }
            textCol.addView(tView)
@@ -780,7 +988,7 @@ object QQSettingDialog {
            row.addView(textCol)
 
            val initialChecked = prefs.getBoolean(prefKey, defaultVal)
-           val sw = AppleSwitchView(context).apply {
+           val sw = AppleSwitchView(context, colors.isNight).apply {
                setCheckedImmediately(initialChecked)
                onCheckedChangeListener = { isChecked ->
                    prefs.edit().putBoolean(prefKey, isChecked).commit()
@@ -810,7 +1018,7 @@ object QQSettingDialog {
            text = "自动进食与沐浴"
            textSize = 16f
            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-           setTextColor(Color.parseColor("#1C1C1E"))
+           setTextColor(colors.primaryText)
        }
 
        fun getCareSubtitle(energy: Int, clean: Int): String {
@@ -823,7 +1031,7 @@ object QQSettingDialog {
        val careSubtitle = TextView(context).apply {
            text = getCareSubtitle(curEnergyThresh, curCleanThresh)
            textSize = 13f
-           setTextColor(Color.parseColor("#8E8E93"))
+           setTextColor(colors.secondaryText)
            setPadding(0, dp(context, 2), 0, 0)
        }
        careTextCol.addView(careTitle)
@@ -841,14 +1049,15 @@ object QQSettingDialog {
        val energyLabel = TextView(context).apply {
            text = "进食体力阈值 (缺粮时自动采购爱心饼干)"
            textSize = 12f
-           setTextColor(Color.parseColor("#8E8E93"))
+           setTextColor(colors.secondaryText)
            setPadding(0, dp(context, 4), 0, dp(context, 4))
        }
        val energyInitialIndex = thresholdValues.indexOf(curEnergyThresh).let { if (it >= 0) it else 1 }
        val energySeg = AppleSegmentedControl(
            context,
            thresholdLabels,
-           energyInitialIndex
+           energyInitialIndex,
+           isNight = colors.isNight
        ) { sel ->
            val v = thresholdValues.getOrElse(sel) { 60 }
            curEnergyThresh = v
@@ -862,14 +1071,15 @@ object QQSettingDialog {
        val cleanLabel = TextView(context).apply {
            text = "洗澡清洁阈值 (零消耗温水香皂触控洗护)"
            textSize = 12f
-           setTextColor(Color.parseColor("#8E8E93"))
+           setTextColor(colors.secondaryText)
            setPadding(0, dp(context, 8), 0, dp(context, 4))
        }
        val cleanInitialIndex = thresholdValues.indexOf(curCleanThresh).let { if (it >= 0) it else 1 }
        val cleanSeg = AppleSegmentedControl(
            context,
            thresholdLabels,
-           cleanInitialIndex
+           cleanInitialIndex,
+           isNight = colors.isNight
        ) { sel ->
            val v = thresholdValues.getOrElse(sel) { 60 }
            curCleanThresh = v
@@ -881,7 +1091,7 @@ object QQSettingDialog {
        carePanel.addView(cleanSeg)
 
        val careInitialChecked = prefs.getBoolean("key_care", true)
-       val careSwitch = AppleSwitchView(context).apply {
+       val careSwitch = AppleSwitchView(context, colors.isNight).apply {
            setCheckedImmediately(careInitialChecked)
            onCheckedChangeListener = { isChecked ->
                prefs.edit().putBoolean("key_care", isChecked).commit()
@@ -909,6 +1119,10 @@ object QQSettingDialog {
         fun addActionItem(
             card: LinearLayout,
             title: String,
+            confirmTitle: String,
+            confirmMessage: String,
+            confirmBtnText: String = "确认执行",
+            isDestructive: Boolean = false,
             colorHex: String = "#1C1C1E",
             isBold: Boolean = false,
             isLast: Boolean = false,
@@ -920,14 +1134,27 @@ object QQSettingDialog {
                 setPadding(0, dp(context, 14), 0, dp(context, 14))
                 applyTouchSpringEffect(this)
                 setOnClickListener {
-                    onClick()
+                    showConfirmDialog(
+                        context = context,
+                        colors = colors,
+                        title = confirmTitle,
+                        message = confirmMessage,
+                        confirmText = confirmBtnText,
+                        isDestructive = isDestructive,
+                        onConfirm = onClick
+                    )
                 }
+            }
+            val resolvedTextColor = when (colorHex) {
+                "#007AFF" -> colors.actionBlueText
+                "#FF3B30" -> colors.actionRedText
+                else -> colors.actionPrimaryText
             }
             val tView = TextView(context).apply {
                 text = title
                 textSize = 15.5f
                 typeface = if (isBold) Typeface.create("sans-serif-medium", Typeface.BOLD) else Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                setTextColor(Color.parseColor(colorHex))
+                setTextColor(resolvedTextColor)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
             }
             itemRow.addView(tView)
@@ -937,43 +1164,102 @@ object QQSettingDialog {
             }
         }
 
-        addActionItem(actionCard, "立即执行全套巡检与养成", colorHex = "#007AFF", isBold = true, isLast = false) {
+        addActionItem(
+            card = actionCard,
+            title = "立即执行全套巡检与养成",
+            confirmTitle = "执行全套巡检与养成？",
+            confirmMessage = "将立即同步小宠最新资质与起居状态，按需触发进食洗澡，并依序规划自适应日程。",
+            confirmBtnText = "立即执行",
+            colorHex = "#007AFF",
+            isBold = true,
+            isLast = false
+        ) {
             triggerAction(context, engine, "cycle")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
-        addActionItem(actionCard, "立即派遣打工", colorHex = "#1C1C1E", isLast = false) {
+        addActionItem(
+            card = actionCard,
+            title = "立即派遣打工",
+            confirmTitle = "立即派遣打工？",
+            confirmMessage = "将根据设定的打工场所与时长偏好，立即为小宠开启新一轮勤劳打工。",
+            confirmBtnText = "立即打工",
+            colorHex = "#1C1C1E",
+            isLast = false
+        ) {
             triggerAction(context, engine, "work")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
-        addActionItem(actionCard, "立即启程学习", colorHex = "#1C1C1E", isLast = false) {
+        addActionItem(
+            card = actionCard,
+            title = "立即启程学习",
+            confirmTitle = "立即启程学习？",
+            confirmMessage = "将根据设定的学府与专攻科目偏好，立即为小宠安排官方课程研修。",
+            confirmBtnText = "立即学习",
+            colorHex = "#1C1C1E",
+            isLast = false
+        ) {
             triggerAction(context, engine, "school")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
-        addActionItem(actionCard, "立即野外探险", colorHex = "#1C1C1E", isLast = false) {
+        addActionItem(
+            card = actionCard,
+            title = "立即野外探险",
+            confirmTitle = "立即野外探险？",
+            confirmMessage = "将立即启程前往神秘森林，开启野外探秘与修行历练。",
+            confirmBtnText = "立即探险",
+            colorHex = "#1C1C1E",
+            isLast = false
+        ) {
             triggerAction(context, engine, "adventure")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
-        addActionItem(actionCard, "立即结算探险收益", colorHex = "#1C1C1E", isLast = false) {
+        addActionItem(
+            card = actionCard,
+            title = "立即结算探险收益",
+            confirmTitle = "结算探险收益？",
+            confirmMessage = "将立即向服务端请求结算当前探险掉落，领回所有金币、经验与道具奖励。",
+            confirmBtnText = "立即结算",
+            colorHex = "#1C1C1E",
+            isLast = false
+        ) {
             triggerAction(context, engine, "settle")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
-        addActionItem(actionCard, "立即回踩访客 (互相踩踩)", colorHex = "#007AFF", isLast = false) {
+        addActionItem(
+            card = actionCard,
+            title = "立即回踩访客 (互相踩踩)",
+            confirmTitle = "立即回踩访客？",
+            confirmMessage = "将拉取最近造访小家的好友记录，并依次向未回赠的好友发起回踩送心。",
+            confirmBtnText = "立即回踩",
+            colorHex = "#007AFF",
+            isLast = false
+        ) {
             triggerAction(context, engine, "like_back")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
-        addActionItem(actionCard, "立即召回宠物回家 (中断当前打工/学习)", colorHex = "#FF3B30", isBold = true, isLast = true) {
+        addActionItem(
+            card = actionCard,
+            title = "立即召回宠物回家 (中断当前打工/学习)",
+            confirmTitle = "确认召回宠物回家？",
+            confirmMessage = "此操作将强制中断小宠当前正在进行的打工或学习派遣，提前返程回家。",
+            confirmBtnText = "确认召回",
+            isDestructive = true,
+            colorHex = "#FF3B30",
+            isBold = true,
+            isLast = true
+        ) {
             triggerAction(context, engine, "recall")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
@@ -1002,13 +1288,13 @@ object QQSettingDialog {
         val moreTitle = TextView(context).apply {
             text = "进入伴侣独立 App 管理更多细节"
             textSize = 15f
-            setTextColor(Color.parseColor("#1C1C1E"))
+            setTextColor(colors.primaryText)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
         }
         val moreArrow = TextView(context).apply {
             text = "›"
             textSize = 18f
-            setTextColor(Color.parseColor("#C7C7CC"))
+            setTextColor(colors.chevronText)
         }
         moreRow.addView(moreTitle)
         moreRow.addView(moreArrow)
@@ -1018,7 +1304,7 @@ object QQSettingDialog {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
                 leftMargin = dp(context, 16)
             }
-            setBackgroundColor(Color.parseColor("#E5E5EA"))
+            setBackgroundColor(colors.dividerColor)
         }
         val groupRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1047,13 +1333,13 @@ object QQSettingDialog {
         val groupTitle = TextView(context).apply {
             text = "进入官方反馈交流群"
             textSize = 15f
-            setTextColor(Color.parseColor("#1C1C1E"))
+            setTextColor(colors.primaryText)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
         }
         val groupArrow = TextView(context).apply {
             text = "›"
             textSize = 18f
-            setTextColor(Color.parseColor("#C7C7CC"))
+            setTextColor(colors.chevronText)
         }
         groupRow.addView(groupTitle)
         groupRow.addView(groupArrow)
@@ -1071,7 +1357,12 @@ object QQSettingDialog {
         fullRoot.addView(scrollView)
 
         // 原生二级设置页面 Dialog
-        dialogInstance = object : Dialog(context, android.R.style.Theme_DeviceDefault_Light_NoActionBar) {
+        val dialogThemeRes = if (colors.isNight) {
+            android.R.style.Theme_DeviceDefault_NoActionBar
+        } else {
+            android.R.style.Theme_DeviceDefault_Light_NoActionBar
+        }
+        dialogInstance = object : Dialog(context, dialogThemeRes) {
             @Deprecated("Deprecated in Java")
             override fun onBackPressed() {
                 dismissWithAnimation(fullRoot, this)
@@ -1083,7 +1374,7 @@ object QQSettingDialog {
         }
 
         dialogInstance.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.parseColor("#F2F2F7")))
+            setBackgroundDrawable(ColorDrawable(colors.pageBg))
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             setDimAmount(0f)
             attributes = attributes?.apply {
@@ -1091,11 +1382,15 @@ object QQSettingDialog {
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-                statusBarColor = Color.parseColor("#F2F2F7")
+                statusBarColor = colors.pageBg
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 @Suppress("DEPRECATION")
-                decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                decorView.systemUiVisibility = if (colors.isNight) {
+                    decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                } else {
+                    decorView.systemUiVisibility or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                }
             }
         }
 
