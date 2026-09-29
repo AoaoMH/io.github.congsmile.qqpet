@@ -40,18 +40,26 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         val charm: Long = 0L
     )
 
-    data class LikeMember(
-        val uin: Long,
-        val nick: String,
-        val headerUrl: String,
-        val timestamp: Long,
-        val desc: String,
-        val canLikeBack: Boolean,
-        val petId: String = ""
-    )
+   data class LikeMember(
+       val uin: Long,
+       val nick: String,
+       val headerUrl: String,
+       val timestamp: Long,
+       val desc: String,
+       val canLikeBack: Boolean,
+       val petId: String = ""
+   )
 
-    companion object {
-        private const val TAG = "QQPetDirectBridge"
+   data class PetAttributes(
+       val energy: Float,
+       val maxEnergy: Float = 100f,
+       val clean: Float,
+       val maxClean: Float = 100f,
+       val mood: Float = 0f
+   )
+
+   companion object {
+       private const val TAG = "QQPetDirectBridge"
         private const val INTERFACE_CLASS = "com.tencent.ergo.hostdelegate.pb.PetPbDelegate"
         private const val OBSERVER_CLASS = "com.tencent.ergo.hostdelegate.pb.PetPbDelegate\$a"
         private const val DELEGATE_PKG = "com.tencent.mobileqq.qqpet.delegate."
@@ -306,44 +314,43 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         return 9990032L
     }
 
-    /**
-     * 自动喂食 (腾讯官方 0x992d_1 协议体 zh5.b)
-     */
-    fun feed(
-        petId: String,
-        foodId: Long = 0L,
-        callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit
-    ) {
-        val targetFoodId = if (foodId > 0L) foodId else resolveFoodId()
-        val uin = resolveUin(petId)
-        var bodyBytes: ByteArray? = null
-        try {
-            val bCls = classLoader.loadClass("zh5.b")
-            val bInst = bCls.newInstance()
-            bCls.getField("a").set(bInst, uin)
-            bCls.getField("b").set(bInst, "")
-            bCls.getField("c").set(bInst, "")
-            bCls.getField("d").set(bInst, petId)
-            bCls.getField("e").set(bInst, targetFoodId.toInt())
-            val nanoCls = classLoader.loadClass("com.google.protobuf.nano.MessageNano")
-            val toByteArrayMethod = nanoCls.getMethod("toByteArray", nanoCls)
-            bodyBytes = toByteArrayMethod.invoke(null, bInst) as ByteArray
-            Log.d(TAG, "通过 zh5.b 反射构造喂食包成功: uin=$uin, petId=$petId, foodId=$targetFoodId")
-        } catch (t: Throwable) {
-            Log.w(TAG, "zh5.b 反射未就绪: ${t.message}，使用 ProtoWire 编码")
-        }
+   /**
+    * 自动喂食 (腾讯官方 0x992d_1 协议体 zh5.b)
+    */
+   fun feed(
+       petId: String,
+       foodId: Long = 0L,
+       callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit
+   ) {
+       val targetFoodId = if (foodId > 0L) foodId else resolveFoodId()
+       var bodyBytes: ByteArray? = null
+       try {
+           val bCls = classLoader.loadClass("zh5.b")
+           val bInst = bCls.newInstance()
+           bCls.getField("a").set(bInst, "")
+           bCls.getField("b").set(bInst, "")
+           bCls.getField("c").set(bInst, "")
+           bCls.getField("d").set(bInst, petId)
+           bCls.getField("e").set(bInst, targetFoodId.toInt())
+           val nanoCls = classLoader.loadClass("com.google.protobuf.nano.MessageNano")
+           val toByteArrayMethod = nanoCls.getMethod("toByteArray", nanoCls)
+           bodyBytes = toByteArrayMethod.invoke(null, bInst) as ByteArray
+           Log.d(TAG, "通过 zh5.b 反射构造喂食包成功: petId=$petId, foodId=$targetFoodId")
+       } catch (t: Throwable) {
+           Log.w(TAG, "zh5.b 反射未就绪: ${t.message}，使用 ProtoWire 编码")
+       }
 
-        if (bodyBytes == null) {
-            bodyBytes = ProtoWire.message()
-                .writeString(1, uin)
-                .writeString(2, "")
-                .writeString(3, "")
-                .writeString(4, petId)
-                .writeVarint(5, targetFoodId)
-                .toByteArray()
-        }
-        sendOidb("OidbSvcTrpcTcp.0x992d_1", 39213, 1, bodyBytes) { code, data, err -> callback(code, data, err) }
-    }
+       if (bodyBytes == null) {
+           bodyBytes = ProtoWire.message()
+               .writeString(1, "")
+               .writeString(2, "")
+               .writeString(3, "")
+               .writeString(4, petId)
+               .writeVarint(5, targetFoodId)
+               .toByteArray()
+       }
+       sendOidb("OidbSvcTrpcTcp.0x992d_1", 39213, 1, bodyBytes) { code, data, err -> callback(code, data, err) }
+   }
 
     /**
      * 查询当日剩余喂食次数 (官方 0x9949_1 协议通道)
@@ -387,65 +394,151 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         }
     }
 
-    /**
-     * 自动洗澡 / 清洁 (官方 0x96a6_1 行为事件通道)
-     * EPage: 5000 (E_PET_WASH)
-     * EEventType: 500 (E_EVENT_WASH)
-     * ESubEvent: 501 (E_SUBEVENT_WASH_CLEAN_PROGRESS)
-     * cleanValue: 100
-     */
-    fun bath(
-        petId: String,
-        cleanValue: Int = 100,
-        callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit
-    ) {
-        val uin = resolveUin(petId)
-        var bodyBytes: ByteArray? = null
-        try {
-            val dCls = classLoader.loadClass("ci5.d")
-            val dInst = dCls.newInstance()
-            dCls.getField("a").set(dInst, petId)
-            dCls.getField("b").set(dInst, uin)
-            val jCls = classLoader.loadClass("uh5.j")
-            val jInst = jCls.newInstance()
-            jCls.getField("a").set(jInst, 5000)
-            jCls.getField("b").set(jInst, 500)
-            jCls.getField("c").set(jInst, 501)
-            dCls.getField("c").set(dInst, jInst)
-            val bCls = classLoader.loadClass("ci5.b")
-            val bInst = bCls.newInstance()
-            bCls.getField("d").set(bInst, cleanValue)
-            dCls.getField("e").set(dInst, bInst)
-            val nanoCls = classLoader.loadClass("com.google.protobuf.nano.MessageNano")
-            val toByteArrayMethod = nanoCls.getMethod("toByteArray", nanoCls)
-            bodyBytes = toByteArrayMethod.invoke(null, dInst) as ByteArray
-            Log.d(TAG, "通过 ci5.d 反射构造清洁上报包成功")
-        } catch (t: Throwable) {
-            Log.w(TAG, "ci5.d 反射未就绪: ${t.message}，使用 ProtoWire 编码")
-        }
+   /**
+    * 自动洗澡 / 清洁 (官方 0x96a6_1 行为事件通道)
+    * EPage: 5000 (E_PET_WASH)
+    * EEventType: 500 (E_EVENT_WASH)
+    * ESubEvent: 501 (E_SUBEVENT_WASH_CLEAN_PROGRESS)
+    * cleanValue: 100
+    */
+   fun bath(
+       petId: String,
+       cleanValue: Int = 100,
+       callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit
+   ) {
+       var bodyBytes: ByteArray? = null
+       try {
+           val dCls = classLoader.loadClass("ci5.d")
+           val dInst = dCls.newInstance()
+           dCls.getField("a").set(dInst, petId)
+           dCls.getField("b").set(dInst, "")
+           val jCls = classLoader.loadClass("uh5.j")
+           val jInst = jCls.newInstance()
+           jCls.getField("a").set(jInst, 5000)
+           jCls.getField("b").set(jInst, 500)
+           jCls.getField("c").set(jInst, 501)
+           dCls.getField("c").set(dInst, jInst)
+           val bCls = classLoader.loadClass("ci5.b")
+           val bInst = bCls.newInstance()
+           bCls.getField("d").set(bInst, cleanValue)
+           dCls.getField("e").set(dInst, bInst)
+           val nanoCls = classLoader.loadClass("com.google.protobuf.nano.MessageNano")
+           val toByteArrayMethod = nanoCls.getMethod("toByteArray", nanoCls)
+           bodyBytes = toByteArrayMethod.invoke(null, dInst) as ByteArray
+           Log.d(TAG, "通过 ci5.d 反射构造清洁上报包成功")
+       } catch (t: Throwable) {
+           Log.w(TAG, "ci5.d 反射未就绪: ${t.message}，使用 ProtoWire 编码")
+       }
 
-        if (bodyBytes == null) {
-            val pathBytes = ProtoWire.message()
-                .writeVarint(1, 5000L)
-                .writeVarint(2, 500L)
-                .writeVarint(3, 501L)
-                .toByteArray()
-            val extBytes = ProtoWire.message()
-                .writeVarint(4, cleanValue.toLong())
-                .toByteArray()
-            bodyBytes = ProtoWire.message()
-                .writeString(1, petId)
-                .writeString(2, uin)
-                .writeBytes(3, pathBytes)
-                .writeBytes(5, extBytes)
-                .toByteArray()
-        }
-        sendOidb("OidbSvcTrpcTcp.0x96a6_1", 38566, 1, bodyBytes) { code, data, err -> callback(code, data, err) }
-    }
+       if (bodyBytes == null) {
+           val pathBytes = ProtoWire.message()
+               .writeVarint(1, 5000L)
+               .writeVarint(2, 500L)
+               .writeVarint(3, 501L)
+               .toByteArray()
+           val extBytes = ProtoWire.message()
+               .writeVarint(4, cleanValue.toLong())
+               .toByteArray()
+           bodyBytes = ProtoWire.message()
+               .writeString(1, petId)
+               .writeString(2, "")
+               .writeBytes(3, pathBytes)
+               .writeBytes(5, extBytes)
+               .toByteArray()
+       }
+       sendOidb("OidbSvcTrpcTcp.0x96a6_1", 38566, 1, bodyBytes) { code, data, err -> callback(code, data, err) }
+   }
 
-    /**
-     * 任务结算收工
-     */
+   /**
+    * 自动购买食物 (官方 0x99df_1 / 39391 协议)
+    * tag 1: 购买数量 (Varint, 默认 5L)
+    * tag 2: petId (String)
+    * tag 3: 道具分类 (String, "1" 代表爱心饼干, 单价 5 金币)
+    */
+   fun buyFood(
+       petId: String,
+       count: Long = 5L,
+       itemType: String = "1",
+       callback: (code: Int, rawData: ByteArray?, errorMsg: String?) -> Unit
+   ) {
+       val body = ProtoWire.message()
+           .writeVarint(1, count)
+           .writeString(2, petId)
+           .writeString(3, itemType)
+           .toByteArray()
+
+       sendOidb("OidbSvcTrpcTcp.0x99df_1", 39391, 1, body) { code, data, errorMsg ->
+           Log.i(TAG, "buyFood 购买食物 (itemType=$itemType, count=$count) 回包: code=$code, err=$errorMsg")
+           callback(code, data, errorMsg)
+       }
+   }
+
+   /**
+    * 主动触发宠物全量资料与属性刷新 (官方 0x99f2_1 / 39410 协议)
+    * 空包请求触发服务端回传全量 profile 并刷新 DisplayValueManager 单例
+    */
+   fun refreshProfile(callback: ((code: Int) -> Unit)? = null) {
+       sendOidb("OidbSvcTrpcTcp.0x99f2_1", 39410, 1, ByteArray(0)) { code, _, _ ->
+           Log.d(TAG, "refreshProfile 触发状态同步回包: code=$code")
+           callback?.invoke(code)
+       }
+   }
+
+   /**
+    * 从宿主 DisplayValueManager 单例实时提取宠物当前体力与清洁度
+    */
+   fun getPetAttributes(petId: String): PetAttributes? {
+       try {
+           val mgrCls = classLoader.loadClass("com.tencent.ergo.user.DisplayValueManager")
+           val mgrInst = mgrCls.getField("a").get(null) ?: return null
+           val uin = resolveUin(petId)
+           var displayObj: Any? = null
+           if (uin.isNotEmpty()) {
+               try {
+                   val dMethod = mgrCls.getMethod("d", String::class.java)
+                   displayObj = dMethod.invoke(mgrInst, uin)
+               } catch (_: Throwable) {}
+           }
+           if (displayObj == null) {
+               try {
+                   val cMethod = mgrCls.getMethod("c")
+                   val liveData = cMethod.invoke(mgrInst)
+                   if (liveData != null) {
+                       val getValueMethod = liveData.javaClass.getMethod("getValue")
+                       displayObj = getValueMethod.invoke(liveData)
+                   }
+               } catch (_: Throwable) {}
+           }
+           if (displayObj != null) {
+               val fMethod = displayObj.javaClass.getMethod("f")
+               val energyObj = fMethod.invoke(displayObj)
+               val energy = (energyObj.javaClass.getMethod("b").invoke(energyObj) as? Number)?.toFloat() ?: -1f
+               val maxEnergy = (energyObj.javaClass.getMethod("d").invoke(energyObj) as? Number)?.toFloat() ?: 100f
+
+               val cObjMethod = displayObj.javaClass.getMethod("c")
+               val cleanObj = cObjMethod.invoke(displayObj)
+               val clean = (cleanObj.javaClass.getMethod("b").invoke(cleanObj) as? Number)?.toFloat() ?: -1f
+               val maxClean = (cleanObj.javaClass.getMethod("d").invoke(cleanObj) as? Number)?.toFloat() ?: 100f
+
+               var mood = 0f
+               try {
+                   val dObjMethod = displayObj.javaClass.getMethod("d")
+                   val moodObj = dObjMethod.invoke(displayObj)
+                   mood = (moodObj.javaClass.getMethod("b").invoke(moodObj) as? Number)?.toFloat() ?: 0f
+               } catch (_: Throwable) {}
+
+               Log.d(TAG, "实时读取到宠物属性: energy=$energy/$maxEnergy, clean=$clean/$maxClean, mood=$mood")
+               return PetAttributes(energy, maxEnergy, clean, maxClean, mood)
+           }
+       } catch (t: Throwable) {
+           Log.w(TAG, "反射读取宠物属性异常: ${t.message}")
+       }
+       return null
+   }
+
+   /**
+    * 任务结算收工
+    */
     fun settleStory(storyId: String, petId: String, callback: (code: Int, rawData: ByteArray?) -> Unit) {
         val body = ProtoWire.message()
             .writeString(1, storyId)

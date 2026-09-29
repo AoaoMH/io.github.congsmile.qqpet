@@ -381,17 +381,17 @@ object QQSettingDialog {
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             setTextColor(Color.parseColor("#1C1C1E"))
         }
-        val statusAttributesText = TextView(context).apply {
-            val d = PetAdventureEngine.cachedSchoolDetails
-            text = if (d != null && d.code == 0) {
-                "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}"
-            } else {
-                "小宠资质 · 实时同步官方属性中"
-            }
-            textSize = 13f
-            setTextColor(Color.parseColor("#8E8E93"))
-            setPadding(0, dp(context, 4), 0, 0)
-        }
+       val statusAttributesText = TextView(context).apply {
+           val d = PetAdventureEngine.cachedSchoolDetails
+           val petId = PetAdventureEngine.cachedPetId
+           val attrs = if (!petId.isNullOrEmpty()) HookEntry.globalBridge?.getPetAttributes(petId) else null
+           val attrPrefix = if (d != null && d.code == 0) "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}" else "小宠资质 · 实时同步官方属性中"
+           val liveCare = if (attrs != null && attrs.energy >= 0f) " · 体力 ${attrs.energy.toInt()} 清洁 ${attrs.clean.toInt()}" else ""
+           text = "$attrPrefix$liveCare"
+           textSize = 13f
+           setTextColor(Color.parseColor("#8E8E93"))
+           setPadding(0, dp(context, 4), 0, 0)
+       }
         statusCard.addView(statusActionText)
         statusCard.addView(statusAttributesText)
         contentLayout.addView(statusCard)
@@ -668,61 +668,163 @@ object QQSettingDialog {
         contentLayout.addView(autoGroupCard)
 
         // ================= 4. 分组二：日常起居与历练 =================
-        addSectionHeader("日常起居与历练")
-        val dailyCard = createGroupCard()
+       addSectionHeader("日常起居与历练")
+       val dailyCard = createGroupCard()
 
-        fun addSimpleToggleRow(
-            card: LinearLayout,
-            title: String,
-            desc: String,
-            prefKey: String,
-            defaultVal: Boolean,
-            isLast: Boolean
-        ) {
-            val row = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(context, 12), 0, dp(context, 12))
-            }
-            val textCol = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
-                    setMargins(0, 0, dp(context, 10), 0)
-                }
-            }
-            val tView = TextView(context).apply {
-                text = title
-                textSize = 16f
-                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-                setTextColor(Color.parseColor("#1C1C1E"))
-            }
-            val dView = TextView(context).apply {
-                text = desc
-                textSize = 13f
-                setTextColor(Color.parseColor("#8E8E93"))
-                setPadding(0, dp(context, 2), 0, 0)
-            }
-            textCol.addView(tView)
-            textCol.addView(dView)
-            row.addView(textCol)
+       fun addSimpleToggleRow(
+           card: LinearLayout,
+           title: String,
+           desc: String,
+           prefKey: String,
+           defaultVal: Boolean,
+           isLast: Boolean
+       ) {
+           val row = LinearLayout(context).apply {
+               orientation = LinearLayout.HORIZONTAL
+               gravity = Gravity.CENTER_VERTICAL
+               setPadding(0, dp(context, 12), 0, dp(context, 12))
+           }
+           val textCol = LinearLayout(context).apply {
+               orientation = LinearLayout.VERTICAL
+               layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+                   setMargins(0, 0, dp(context, 10), 0)
+               }
+           }
+           val tView = TextView(context).apply {
+               text = title
+               textSize = 16f
+               typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+               setTextColor(Color.parseColor("#1C1C1E"))
+           }
+           val dView = TextView(context).apply {
+               text = desc
+               textSize = 13f
+               setTextColor(Color.parseColor("#8E8E93"))
+               setPadding(0, dp(context, 2), 0, 0)
+           }
+           textCol.addView(tView)
+           textCol.addView(dView)
+           row.addView(textCol)
 
-            val initialChecked = prefs.getBoolean(prefKey, defaultVal)
-            val sw = AppleSwitchView(context).apply {
-                setCheckedImmediately(initialChecked)
-                onCheckedChangeListener = { isChecked ->
-                    prefs.edit().putBoolean(prefKey, isChecked).commit()
-                    syncConfig(prefs, engine, context)
-                }
-            }
-            row.addView(sw)
-            card.addView(row)
-            if (!isLast) {
-                card.addView(createDivider())
-            }
-        }
+           val initialChecked = prefs.getBoolean(prefKey, defaultVal)
+           val sw = AppleSwitchView(context).apply {
+               setCheckedImmediately(initialChecked)
+               onCheckedChangeListener = { isChecked ->
+                   prefs.edit().putBoolean(prefKey, isChecked).commit()
+                   syncConfig(prefs, engine, context)
+               }
+           }
+           row.addView(sw)
+           card.addView(row)
+           if (!isLast) {
+               card.addView(createDivider())
+           }
+       }
 
-        addSimpleToggleRow(dailyCard, "自动进食与沐浴", "饥饿肮脏时自动进食、洗澡沐浴", "key_care", true, false)
-        addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
+       // --- 条目：自动进食与沐浴 (带体力与清洁自选阈值面板) ---
+       val careRow = LinearLayout(context).apply {
+           orientation = LinearLayout.HORIZONTAL
+           gravity = Gravity.CENTER_VERTICAL
+           setPadding(0, dp(context, 13), 0, dp(context, 13))
+       }
+       val careTextCol = LinearLayout(context).apply {
+           orientation = LinearLayout.VERTICAL
+           layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+               setMargins(0, 0, dp(context, 10), 0)
+           }
+       }
+       val careTitle = TextView(context).apply {
+           text = "自动进食与沐浴"
+           textSize = 16f
+           typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+           setTextColor(Color.parseColor("#1C1C1E"))
+       }
+
+       fun getCareSubtitle(energy: Int, clean: Int): String {
+           return "体力低于 $energy 自动进食 · 清洁低于 $clean 自动洗澡"
+       }
+
+       var curEnergyThresh = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
+       var curCleanThresh = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
+
+       val careSubtitle = TextView(context).apply {
+           text = getCareSubtitle(curEnergyThresh, curCleanThresh)
+           textSize = 13f
+           setTextColor(Color.parseColor("#8E8E93"))
+           setPadding(0, dp(context, 2), 0, 0)
+       }
+       careTextCol.addView(careTitle)
+       careTextCol.addView(careSubtitle)
+       careRow.addView(careTextCol)
+
+       val carePanel = LinearLayout(context).apply {
+           orientation = LinearLayout.VERTICAL
+           setPadding(0, 0, 0, dp(context, 12))
+       }
+
+       val thresholdValues = listOf(40, 60, 80, 90)
+       val thresholdLabels = listOf("低于40", "低于60 (推荐)", "低于80", "低于90")
+
+       val energyLabel = TextView(context).apply {
+           text = "进食体力阈值 (缺粮时自动采购爱心饼干)"
+           textSize = 12f
+           setTextColor(Color.parseColor("#8E8E93"))
+           setPadding(0, dp(context, 4), 0, dp(context, 4))
+       }
+       val energyInitialIndex = thresholdValues.indexOf(curEnergyThresh).let { if (it >= 0) it else 1 }
+       val energySeg = AppleSegmentedControl(
+           context,
+           thresholdLabels,
+           energyInitialIndex
+       ) { sel ->
+           val v = thresholdValues.getOrElse(sel) { 60 }
+           curEnergyThresh = v
+           prefs.edit().putInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, v).commit()
+           careSubtitle.text = getCareSubtitle(curEnergyThresh, curCleanThresh)
+           syncConfig(prefs, engine, context)
+       }
+       carePanel.addView(energyLabel)
+       carePanel.addView(energySeg)
+
+       val cleanLabel = TextView(context).apply {
+           text = "洗澡清洁阈值 (零消耗温水香皂触控洗护)"
+           textSize = 12f
+           setTextColor(Color.parseColor("#8E8E93"))
+           setPadding(0, dp(context, 8), 0, dp(context, 4))
+       }
+       val cleanInitialIndex = thresholdValues.indexOf(curCleanThresh).let { if (it >= 0) it else 1 }
+       val cleanSeg = AppleSegmentedControl(
+           context,
+           thresholdLabels,
+           cleanInitialIndex
+       ) { sel ->
+           val v = thresholdValues.getOrElse(sel) { 60 }
+           curCleanThresh = v
+           prefs.edit().putInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, v).commit()
+           careSubtitle.text = getCareSubtitle(curEnergyThresh, curCleanThresh)
+           syncConfig(prefs, engine, context)
+       }
+       carePanel.addView(cleanLabel)
+       carePanel.addView(cleanSeg)
+
+       val careInitialChecked = prefs.getBoolean("key_care", true)
+       val careSwitch = AppleSwitchView(context).apply {
+           setCheckedImmediately(careInitialChecked)
+           onCheckedChangeListener = { isChecked ->
+               prefs.edit().putBoolean("key_care", isChecked).commit()
+               animateExpandCollapse(carePanel, isChecked)
+               syncConfig(prefs, engine, context)
+           }
+       }
+       careRow.addView(careSwitch)
+       dailyCard.addView(careRow)
+       if (!careInitialChecked) {
+           carePanel.visibility = View.GONE
+       }
+       dailyCard.addView(carePanel)
+       dailyCard.addView(createDivider())
+
+       addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
         addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
         addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, true)
         contentLayout.addView(dailyCard)
@@ -924,17 +1026,19 @@ object QQSettingDialog {
             }
         }
 
-        // 挂载秒级倒计时心跳
-        val tickerRunnable = object : Runnable {
-            override fun run() {
-                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
-                val d = PetAdventureEngine.cachedSchoolDetails
-                if (d != null && d.code == 0) {
-                    statusAttributesText.text = "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}"
-                }
-                mainHandler.postDelayed(this, 1000L)
-            }
-        }
+       // 挂载秒级倒计时心跳
+       val tickerRunnable = object : Runnable {
+           override fun run() {
+               statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+               val d = PetAdventureEngine.cachedSchoolDetails
+               val petId = PetAdventureEngine.cachedPetId
+               val attrs = if (!petId.isNullOrEmpty()) HookEntry.globalBridge?.getPetAttributes(petId) else null
+               val attrPrefix = if (d != null && d.code == 0) "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}" else "小宠资质 · 实时同步官方属性中"
+               val liveCare = if (attrs != null && attrs.energy >= 0f) " · 体力 ${attrs.energy.toInt()} 清洁 ${attrs.clean.toInt()}" else ""
+               statusAttributesText.text = "$attrPrefix$liveCare"
+               mainHandler.postDelayed(this, 1000L)
+           }
+       }
         mainHandler.post(tickerRunnable)
         dialogInstance.setOnDismissListener {
             mainHandler.removeCallbacks(tickerRunnable)
@@ -1153,30 +1257,34 @@ object QQSettingDialog {
         val schoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
         val courseSubject = prefs.getInt(PreferencesHelper.KEY_COURSE_SUBJECT, 0)
         val courseDuration = prefs.getInt(PreferencesHelper.KEY_COURSE_DURATION, 0)
-        val workType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
-        val workDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
+       val workType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
+       val workDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
+       val careEnergy = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
+       val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
 
-        HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
-        if (engine != null && engine !== HookEntry.globalEngine) {
-            engine.updateConfig(study, work, care, adv, settle, likeBack, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration)
-        }
-        val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
-            setPackage("com.tencent.mobileqq")
-            putExtra("extra_study", study)
-            putExtra("extra_work", work)
-            putExtra("extra_care", care)
-            putExtra("extra_adventure", adv)
-            putExtra("extra_settle", settle)
-            putExtra("extra_like_back", likeBack)
-            putExtra("extra_study_mode", studyMode)
-            putExtra("extra_work_mode", workMode)
-            putExtra("extra_school_stage", schoolStage)
-            putExtra("extra_course_subject", courseSubject)
-            putExtra("extra_course_duration", courseDuration)
-            putExtra("extra_work_type", workType)
-            putExtra("extra_work_duration", workDuration)
-        }
-        context.sendBroadcast(intent)
+       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean)
+       if (engine != null && engine !== HookEntry.globalEngine) {
+           engine.updateConfig(study, work, care, adv, settle, likeBack, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean)
+       }
+       val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
+           setPackage("com.tencent.mobileqq")
+           putExtra("extra_study", study)
+           putExtra("extra_work", work)
+           putExtra("extra_care", care)
+           putExtra("extra_adventure", adv)
+           putExtra("extra_settle", settle)
+           putExtra("extra_like_back", likeBack)
+           putExtra("extra_study_mode", studyMode)
+           putExtra("extra_work_mode", workMode)
+           putExtra("extra_school_stage", schoolStage)
+           putExtra("extra_course_subject", courseSubject)
+           putExtra("extra_course_duration", courseDuration)
+           putExtra("extra_work_type", workType)
+           putExtra("extra_work_duration", workDuration)
+           putExtra("extra_care_energy_threshold", careEnergy)
+           putExtra("extra_care_clean_threshold", careClean)
+       }
+       context.sendBroadcast(intent)
     }
 
     private fun dp(context: Context, value: Int): Int {

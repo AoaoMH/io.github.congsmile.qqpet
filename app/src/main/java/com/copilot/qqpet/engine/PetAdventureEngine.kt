@@ -61,10 +61,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         @Volatile var prefCustomSchoolStage = 0 // 0: 自适应当前最高, 1: 初级, 2: 中级, 3: 高级, 4: 进修
         @Volatile var prefCustomCourseSubject = 0 // 0: 智能轮换, 1: 智力, 2: 力量, 3: 魅力
         @Volatile var prefCustomCourseDuration = 0 // 0: 任意时长, 1: 基础短课(10-45m), 2: 进阶长课(1-2.25h)
-        @Volatile var prefCustomWorkType = 0 // 0: 演艺文化(最高收益), 1: 文职商业, 2: 体力搬运, 3: 三业轮换
-        @Volatile var prefCustomWorkDuration = 0 // 0: 智能时长, 1: 10分钟(极速), 2: 45分钟(短工), 3: 2小时(中工), 4: 4小时(长工)
+       @Volatile var prefCustomWorkType = 0 // 0: 演艺文化(最高收益), 1: 文职商业, 2: 体力搬运, 3: 三业轮换
+       @Volatile var prefCustomWorkDuration = 0 // 0: 智能时长, 1: 10分钟(极速), 2: 45分钟(短工), 3: 2小时(中工), 4: 4小时(长工)
+       @Volatile var prefCareEnergyThreshold = 60 // 体力进食阈值 (低于设定值立即进食)
+       @Volatile var prefCareCleanThreshold = 60 // 清洁洗澡阈值 (低于设定值立即沐浴)
 
-        @Volatile var lastCareTimeMillis: Long = 0L
+       @Volatile var lastCareTimeMillis: Long = 0L
         @Volatile var lastLikeBackTimeMillis: Long = 0L
 
         // 动态嗅探学习到的最新课程与工种（持久化）
@@ -205,10 +207,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             prefCustomSchoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
             prefCustomCourseSubject = prefs.getInt(PreferencesHelper.KEY_COURSE_SUBJECT, 0)
             prefCustomCourseDuration = prefs.getInt(PreferencesHelper.KEY_COURSE_DURATION, 0)
-            prefCustomWorkType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
-            prefCustomWorkDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
+           prefCustomWorkType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
+           prefCustomWorkDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
+           prefCareEnergyThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
+           prefCareCleanThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
 
-            val savedPetId = prefs.getString("key_cached_pet_id", null)
+           val savedPetId = prefs.getString("key_cached_pet_id", null)
             if (!savedPetId.isNullOrEmpty()) {
                 cachedPetId = savedPetId
             }
@@ -261,27 +265,31 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         likeBack: Boolean = enableLikeBack,
         studyMode: Int = prefStudyMode,
         workMode: Int = prefWorkMode,
-        schoolStage: Int = prefCustomSchoolStage,
-        courseSubject: Int = prefCustomCourseSubject,
-        courseDuration: Int = prefCustomCourseDuration,
-        workType: Int = prefCustomWorkType,
-        workDuration: Int = prefCustomWorkDuration
-    ) {
-        enableStudy = study
-        enableWork = work
-        enableCare = care
-        enableAdventure = adventure
-        enableSettle = settle
-        enableLikeBack = likeBack
-        prefStudyMode = studyMode
-        prefWorkMode = workMode
-        prefCustomSchoolStage = schoolStage
-        prefCustomCourseSubject = courseSubject
-        prefCustomCourseDuration = courseDuration
-        prefCustomWorkType = workType
-        prefCustomWorkDuration = workDuration
-        Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration")
-    }
+       schoolStage: Int = prefCustomSchoolStage,
+       courseSubject: Int = prefCustomCourseSubject,
+       courseDuration: Int = prefCustomCourseDuration,
+       workType: Int = prefCustomWorkType,
+       workDuration: Int = prefCustomWorkDuration,
+       careEnergyThreshold: Int = prefCareEnergyThreshold,
+       careCleanThreshold: Int = prefCareCleanThreshold
+   ) {
+       enableStudy = study
+       enableWork = work
+       enableCare = care
+       enableAdventure = adventure
+       enableSettle = settle
+       enableLikeBack = likeBack
+       prefStudyMode = studyMode
+       prefWorkMode = workMode
+       prefCustomSchoolStage = schoolStage
+       prefCustomCourseSubject = courseSubject
+       prefCustomCourseDuration = courseDuration
+       prefCustomWorkType = workType
+       prefCustomWorkDuration = workDuration
+       prefCareEnergyThreshold = careEnergyThreshold
+       prefCareCleanThreshold = careCleanThreshold
+       Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold")
+   }
 
     fun sendReadySignal(context: Context) {
         sendLog(context, "🟢 [QQ内核已就绪] 宿主发包代理与全功能自动化引擎已全部连通！")
@@ -407,29 +415,70 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             }
         }
 
-        // 4. 自动照顾：喂食 + 洗澡 (周期性守护，无论是否在任务中，均定期进行照顾补充体力与清洁度)
-        if (enableCare) {
-            val now = System.currentTimeMillis()
-            if (now - lastCareTimeMillis > 3 * 60 * 1000L) { // 每3分钟执行一次常规照顾
-                lastCareTimeMillis = now
-                currentStatusText = "日常照顾 (喂食+清洁)..."
-                val (tCode, remain, total) = queryFeedTimesAwait()
-                if (tCode == 0 && total > 0 && remain <= 0) {
-                    sendLog(context, "ℹ️ [照顾] 今日喂食次数已用尽 (剩余 $remain/$total 次)，跳过喂食")
-                } else {
-                    val countDesc = if (tCode == 0 && total > 0) " (今日剩余 $remain/$total 次)" else ""
-                    sendLog(context, "🥣 [照顾] 自动喂食补充体力$countDesc...")
-                    val (fCode, _) = feedAwait(petId)
-                    sendLog(context, if (fCode == 0) "✅ [照顾] 喂食成功！" else "ℹ️ [照顾] 喂食回包 code=$fCode")
-                    delay(1500L)
-                }
+       // 4. 自动照顾：喂食 + 洗澡 (周期性守护，无论是否在任务中，均定期进行照顾补充体力与清洁度)
+       if (enableCare) {
+           val now = System.currentTimeMillis()
+           bridge.refreshProfile()
+           val attrs = bridge.getPetAttributes(petId)
 
-                sendLog(context, "🧼 [照顾] 自动香皂沐浴提升清洁...")
-                val (bCode, _) = bathAwait(petId)
-                sendLog(context, if (bCode == 0) "✅ [照顾] 洗澡成功！" else "ℹ️ [照顾] 洗澡回包 code=$bCode")
-                delay(1500L)
-            }
-        }
+           if (attrs != null) {
+               val curEnergy = attrs.energy
+               val maxEnergy = attrs.maxEnergy
+               val curClean = attrs.clean
+               val maxClean = attrs.maxClean
+
+               val needFeed = curEnergy in 0.0f..<prefCareEnergyThreshold.toFloat()
+               val needBath = curClean in 0.0f..<prefCareCleanThreshold.toFloat()
+
+               if (needFeed || needBath || (now - lastCareTimeMillis > 5 * 60 * 1000L)) {
+                   lastCareTimeMillis = now
+
+                   if (needFeed) {
+                       currentStatusText = "体力偏低 · 立即自动喂食"
+                       val (tCode, remain, total) = queryFeedTimesAwait()
+                       if (tCode == 0 && total > 0 && remain <= 0) {
+                           sendLog(context, "ℹ️ [进食守护] 当前体力 ${curEnergy.toInt()}/${maxEnergy.toInt()} (低于设定阈值 $prefCareEnergyThreshold)，今日喂食次数已用尽")
+                       } else {
+                           val countDesc = if (tCode == 0 && total > 0) " (今日剩余 $remain/$total 次)" else ""
+                           sendLog(context, "🥣 [进食守护] 当前体力 ${curEnergy.toInt()}/${maxEnergy.toInt()} 低于设定阈值 ($prefCareEnergyThreshold)，立即自动喂食$countDesc...")
+                           val (fCode, fErr) = feedWithAutoBuyAwait(context, petId)
+                           sendLog(context, if (fCode == 0) "✅ [进食守护] 喂食成功！体力已恢复" else "ℹ️ [进食守护] 喂食回包 code=$fCode ${fErr ?: ""}")
+                           delay(1200L)
+                           bridge.refreshProfile()
+                       }
+                   }
+
+                   if (needBath) {
+                       currentStatusText = "身体脏了 · 立即沐浴清洁"
+                       sendLog(context, "🧼 [沐浴守护] 当前清洁度 ${curClean.toInt()}/${maxClean.toInt()} 低于设定阈值 ($prefCareCleanThreshold)，立即香皂沐浴...")
+                       val (bCode, _) = bathAwait(petId)
+                       sendLog(context, if (bCode == 0) "✅ [沐浴守护] 洗澡清洁成功！身体干干净净" else "ℹ️ [沐浴守护] 洗澡回包 code=$bCode")
+                       delay(1200L)
+                       bridge.refreshProfile()
+                   }
+               }
+           } else {
+               if (now - lastCareTimeMillis > 3 * 60 * 1000L) {
+                   lastCareTimeMillis = now
+                   currentStatusText = "日常照顾 (喂食+清洁)..."
+                   val (tCode, remain, total) = queryFeedTimesAwait()
+                   if (tCode == 0 && total > 0 && remain <= 0) {
+                       sendLog(context, "ℹ️ [照顾] 今日喂食次数已用尽 (剩余 $remain/$total 次)，跳过喂食")
+                   } else {
+                       val countDesc = if (tCode == 0 && total > 0) " (今日剩余 $remain/$total 次)" else ""
+                       sendLog(context, "🥣 [照顾] 自动喂食补充体力$countDesc...")
+                       val (fCode, fErr) = feedWithAutoBuyAwait(context, petId)
+                       sendLog(context, if (fCode == 0) "✅ [照顾] 喂食成功！" else "ℹ️ [照顾] 喂食回包 code=$fCode ${fErr ?: ""}")
+                       delay(1200L)
+                   }
+
+                   sendLog(context, "🧼 [照顾] 自动香皂沐浴提升清洁...")
+                   val (bCode, _) = bathAwait(petId)
+                   sendLog(context, if (bCode == 0) "✅ [照顾] 洗澡成功！" else "ℹ️ [照顾] 洗澡回包 code=$bCode")
+                   delay(1200L)
+               }
+           }
+       }
 
         // 若当前仍有任务在身，不触发新的外出，睡眠 30 秒以保持倒计时和状态动态刷新
         if (hasActiveTask) {
@@ -755,22 +804,28 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                     sendLog(context, "👉 [指令] 立即触发全流程策略调度循环...")
                     executeMasterCycle(context)
                 }
-                "care" -> {
-                    val petId = ensurePetId(context) ?: return@launch
-                    val (tCode, remain, total) = queryFeedTimesAwait()
-                    if (tCode == 0 && total > 0 && remain <= 0) {
-                        sendLog(context, "ℹ️ [照顾实测] 今日喂食次数已用尽 (剩余 $remain/$total 次)，跳过喂食")
-                    } else {
-                        val countDesc = if (tCode == 0 && total > 0) " (今日剩余 $remain/$total 次)" else ""
-                        sendLog(context, "🥣 [照顾实测] 发起喂食补充体力$countDesc...")
-                        val (fCode, _) = feedAwait(petId)
-                        sendLog(context, if (fCode == 0) "✅ [照顾实测] 喂食成功！体力已补充" else "ℹ️ [照顾实测] 喂食回包 code=$fCode")
-                        delay(1500L)
-                    }
-                    sendLog(context, "🧼 [照顾实测] 发起香皂沐浴...")
-                    val (bCode, _) = bathAwait(petId)
-                    sendLog(context, if (bCode == 0) "✅ [照顾实测] 洗澡成功！清洁度已提升" else "ℹ️ [照顾实测] 洗澡回包 code=$bCode")
-                }
+               "care" -> {
+                   val petId = ensurePetId(context) ?: return@launch
+                   bridge.refreshProfile()
+                   val attrs = bridge.getPetAttributes(petId)
+                   if (attrs != null) {
+                       sendLog(context, "📊 [照顾实测] 当前体力: ${attrs.energy.toInt()}/${attrs.maxEnergy.toInt()}, 清洁: ${attrs.clean.toInt()}/${attrs.maxClean.toInt()}, 心情: ${attrs.mood.toInt()}")
+                   }
+                   val (tCode, remain, total) = queryFeedTimesAwait()
+                   if (tCode == 0 && total > 0 && remain <= 0) {
+                       sendLog(context, "ℹ️ [照顾实测] 今日喂食次数已用尽 (剩余 $remain/$total 次)，跳过喂食")
+                   } else {
+                       val countDesc = if (tCode == 0 && total > 0) " (今日剩余 $remain/$total 次)" else ""
+                       sendLog(context, "🥣 [照顾实测] 发起喂食补充体力$countDesc...")
+                       val (fCode, fErr) = feedWithAutoBuyAwait(context, petId)
+                       sendLog(context, if (fCode == 0) "✅ [照顾实测] 喂食成功！体力已补充" else "ℹ️ [照顾实测] 喂食回包 code=$fCode ${fErr ?: ""}")
+                       delay(1200L)
+                   }
+                   sendLog(context, "🧼 [照顾实测] 发起香皂沐浴...")
+                   val (bCode, _) = bathAwait(petId)
+                   sendLog(context, if (bCode == 0) "✅ [照顾实测] 洗澡成功！清洁度已提升" else "ℹ️ [照顾实测] 洗澡回包 code=$bCode")
+                   bridge.refreshProfile()
+               }
                 "work" -> {
                     val petId = ensurePetId(context) ?: return@launch
                     sendLog(context, "💼 [打工实测] 开始触发自适应打工探测流程...")
@@ -998,20 +1053,56 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             Pair(-99, null)
         }
 
-    private suspend fun bathAwait(petId: String, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, ByteArray?> =
-        try {
-            withTimeoutOrNull(timeoutMs) {
-                suspendCancellableCoroutine { cont ->
-                    bridge.bath(petId) { code, data, _ ->
-                        if (cont.isActive) cont.resume(Pair(code, data))
-                    }
-                }
-            } ?: Pair(-99, null)
-        } catch (_: Throwable) {
-            Pair(-99, null)
-        }
+   private suspend fun bathAwait(petId: String, timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, ByteArray?> =
+       try {
+           withTimeoutOrNull(timeoutMs) {
+               suspendCancellableCoroutine { cont ->
+                   bridge.bath(petId) { code, data, _ ->
+                       if (cont.isActive) cont.resume(Pair(code, data))
+                   }
+               }
+           } ?: Pair(-99, null)
+       } catch (_: Throwable) {
+           Pair(-99, null)
+       }
 
-    private suspend fun startWorkAwait(
+   suspend fun buyFoodAwait(
+       petId: String,
+       count: Long = 5L,
+       itemType: String = "1",
+       timeoutMs: Long = NETWORK_TIMEOUT_MS
+   ): Pair<Int, String?> =
+       try {
+           withTimeoutOrNull(timeoutMs) {
+               suspendCancellableCoroutine { cont ->
+                   bridge.buyFood(petId, count, itemType) { code, _, errorMsg ->
+                       if (cont.isActive) cont.resume(Pair(code, errorMsg))
+                   }
+               }
+           } ?: Pair(-99, "超时")
+       } catch (t: Throwable) {
+           Pair(-99, t.message)
+       }
+
+   suspend fun feedWithAutoBuyAwait(context: Context, petId: String): Pair<Int, String?> {
+       val (fCode, _) = feedAwait(petId)
+       if (fCode == 1000210) {
+           sendLog(context, "🛒 [自动采购] 背包饼干不足 (code=1000210)，立即自动采购 5 份爱心饼干...")
+           val (buyCode, buyErr) = buyFoodAwait(petId, 5L, "1")
+           if (buyCode == 0) {
+               sendLog(context, "✅ [自动采购] 5 份爱心饼干采购入库成功！立即为小宠喂食...")
+               delay(500L)
+               val (retryCode, _) = feedAwait(petId)
+               return Pair(retryCode, if (retryCode == 0) null else "重试喂食回包 code=$retryCode")
+           } else {
+               sendLog(context, "❌ [自动采购] 采购爱心饼干失败: code=$buyCode, 说明: ${buyErr ?: "金币不足或网络异常"}")
+               return Pair(fCode, buyErr)
+           }
+       }
+       return Pair(fCode, null)
+   }
+
+   private suspend fun startWorkAwait(
         petId: String,
         jobName: String = "小镇兼职",
         page: Long = 6400L,
