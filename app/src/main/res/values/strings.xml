@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Q宠后台伴侣</string>
-    <string name="xposed_description">QQ宠物纯后台协议自动化助手，支持锁屏静默学习、打工与自动照顾</string>
+    <string name="xposed_description">手机 QQ 宠物状态展示与日常培养任务辅助管理模块，支持设置页二级界面与日夜间主题自适应</string>
     <string name="target_app_label">推荐作用域</string>
     <string name="target_app_desc">手机 QQ (com.tencent.mobileqq)</string>
     <string name="status_inactive">模块未激活（请在 LSPosed 管理器中启用并勾选 QQ 后重启 QQ）</string>
