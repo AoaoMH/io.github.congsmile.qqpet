@@ -75,10 +75,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         @Volatile var learnedWorkSubEvent: Long? = null
         @Volatile var learnedWorkName: String? = null
 
-        // 当前账号已解锁数据缓存（用于 UI 实时置灰/解锁判断）
-        @Volatile var cachedSchoolDetails: QQPetDirectBridge.SecondMapDetails? = null
-        @Volatile var cachedWorkJobs: List<QQPetDirectBridge.SelectEvent>? = null
-        @Volatile var cachedSchoolCourses: List<QQPetDirectBridge.SelectEvent>? = null
+       // 当前账号已解锁数据缓存（用于 UI 实时置灰/解锁判断）
+       @Volatile var cachedSchoolDetails: QQPetDirectBridge.SecondMapDetails? = null
+       @Volatile var cachedWorkPlaces: QQPetDirectBridge.SecondMapDetails? = null
+       @Volatile var cachedWorkJobs: List<QQPetDirectBridge.SelectEvent>? = null
+       @Volatile var cachedSchoolCourses: List<QQPetDirectBridge.SelectEvent>? = null
 
         fun getLiveRemainingSeconds(): Long {
             if (currentTaskEndTimeMillis <= 0L) return 0L
@@ -686,51 +687,54 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             else -> "均衡兼职"
         }
         currentStatusText = "动态求职中: $modeDesc"
-        sendLog(context, "💼 [动态求职] ($modeDesc) 正在向服务端拉取打工小镇岗位列表...")
+       sendLog(context, "💼 [动态求职] ($modeDesc) 正在向服务端拉取打工小镇岗位列表...")
 
-        val targetCareerType = when (prefCustomWorkType) {
-            0 -> 3 // 演艺文化 (官方实测收益最高: 10m/77, 45m/312, 2h/509, 4h/564)
-            1 -> 1 // 文职商业 (10m/71, 45m/288, 2h/469, 4h/520)
-            2 -> 2 // 体力搬运 (10m/65, 45m/263, 2h/429, 4h/476)
-            3 -> {
-                val c = (workJobCursor % 3) + 1
-                workJobCursor = (workJobCursor + 1) % 3
-                c
-            }
-            else -> {
-                val c = (workJobCursor % 3) + 1
-                workJobCursor = (workJobCursor + 1) % 3
-                c
-            }
-        }
+       val (targetCareerType, placeName) = if (prefCustomWorkType <= 0) {
+           val unlockedCareers = cachedWorkPlaces?.stages?.filter { it.limitStatus == 0 }
+           if (!unlockedCareers.isNullOrEmpty()) {
+               val starTower = unlockedCareers.find { it.stage == 3 }
+               if (starTower != null) {
+                   Pair(3, starTower.title)
+               } else {
+                   val pick = unlockedCareers[workJobCursor % unlockedCareers.size]
+                   workJobCursor = (workJobCursor + 1) % unlockedCareers.size
+                   Pair(pick.stage, pick.title)
+               }
+           } else {
+               Pair(3, "星尘魔法塔")
+           }
+       } else {
+           val matched = cachedWorkPlaces?.stages?.find { it.stage == prefCustomWorkType }
+           Pair(prefCustomWorkType, matched?.title ?: "小镇场所#$prefCustomWorkType")
+       }
 
-        val (evtCode, dynamicJobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareerType)
-        if (evtCode == 0 && dynamicJobs.isNotEmpty()) {
-            sendLog(context, "💼 [岗位拉取] 服务端返回 ${dynamicJobs.size} 个工种: " + dynamicJobs.joinToString { "${it.eventName}(${it.costTime},can=${it.canDo})" })
-            val availableJobs = dynamicJobs.filter { it.canDo }.ifEmpty { dynamicJobs }
-            // 根据工时偏好精准挑选 (官方阶梯: 10分钟 / 45分钟 / 2小时 / 4小时)
-            val targetJob = when (prefCustomWorkDuration) {
-                1 -> availableJobs.find { it.costTime.contains("10") } ?: availableJobs.first()
-                2 -> availableJobs.find { it.costTime.contains("45") } ?: availableJobs.first()
-                3 -> availableJobs.find { it.costTime.contains("2小时") } ?: availableJobs.first()
-                4 -> availableJobs.find { it.costTime.contains("4小时") } ?: availableJobs.first()
-                else -> availableJobs.last() // 默认最长工时高效挂机
-            }
+       val (evtCode, dynamicJobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareerType)
+       if (evtCode == 0 && dynamicJobs.isNotEmpty()) {
+           sendLog(context, "💼 [岗位拉取] 服务端返回 ${dynamicJobs.size} 个工种: " + dynamicJobs.joinToString { "${it.eventName}(${it.costTime},can=${it.canDo})" })
+           val availableJobs = dynamicJobs.filter { it.canDo }.ifEmpty { dynamicJobs }
+           // 根据工时偏好精准挑选 (官方阶梯: 10分钟 / 45分钟 / 2小时 / 4小时)
+           val targetJob = when (prefCustomWorkDuration) {
+               1 -> availableJobs.find { it.costTime.contains("10") } ?: availableJobs.first()
+               2 -> availableJobs.find { it.costTime.contains("45") } ?: availableJobs.first()
+               3 -> availableJobs.find { it.costTime.contains("2小时") } ?: availableJobs.first()
+               4 -> availableJobs.find { it.costTime.contains("4小时") } ?: availableJobs.first()
+               else -> availableJobs.last() // 默认最长工时高效挂机
+           }
 
-            currentStatusText = "小镇上岗: ${targetJob.eventName}"
-            sendLog(context, "💼 [小镇上岗] ($modeDesc) 锁定岗位: ${targetJob.eventName} (工时:${targetJob.costTime}, subEventType=${targetJob.subEventType}, canDo=${targetJob.canDo})，发起启程...")
-            val (codeWork, storyId, errorMsg) = startWorkAwait(petId, targetJob.eventName, 6400L, targetJob.subEventType)
-            if (codeWork == 0 && !storyId.isNullOrEmpty()) {
-                lastActiveStoryId = storyId
-                recordLearnedWorkJob(context, targetJob.eventName, targetJob.subEventType)
-                currentTaskTypeName = "小镇打工中 (${targetJob.eventName})"
-                currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
-                currentStatusText = "正在进行 ${targetJob.eventName} · $modeDesc"
-                sendLog(context, "🎉 [打工成功] 顺利开工 ${targetJob.eventName}！StoryID: $storyId，勤劳致富中")
-                return true
-            } else {
-                sendLog(context, "⚠️ [动态打工] ${targetJob.eventName} 开工回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
-            }
+           currentStatusText = "$placeName: ${targetJob.eventName}"
+           sendLog(context, "💼 [小镇上岗] 锁定场所: $placeName (Career=$targetCareerType, 工时偏好=$prefCustomWorkDuration) 锁定岗位: ${targetJob.eventName} (工时:${targetJob.costTime}, subEventType=${targetJob.subEventType})，发起启程...")
+           val (codeWork, storyId, errorMsg) = startWorkAwait(petId, targetJob.eventName, 6400L, targetJob.subEventType)
+           if (codeWork == 0 && !storyId.isNullOrEmpty()) {
+               lastActiveStoryId = storyId
+               recordLearnedWorkJob(context, targetJob.eventName, targetJob.subEventType)
+               currentTaskTypeName = "打工中 · $placeName (${targetJob.eventName})"
+               currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
+               currentStatusText = "正在 $placeName 进行 ${targetJob.eventName}"
+               sendLog(context, "🎉 [打工成功] 顺利开工 $placeName - ${targetJob.eventName}！StoryID: $storyId，勤劳致富中")
+               return true
+           } else {
+               sendLog(context, "⚠️ [动态打工] ${targetJob.eventName} 开工回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
+           }
         } else {
             sendLog(context, "⚠️ [动态打工] 服务端动态拉取工种回包 code=$evtCode, 尝试候选池保底...")
         }
@@ -918,27 +922,31 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                     }
                     sendLog(context, "🎉 [互踩实测] 回踩任务完成！共成功回踩 $successCount 位好友")
                 }
-                "inspect" -> {
-                    val petId = ensurePetId(context) ?: return@launch
-                    sendLog(context, "🔍 [全量数据探测] 开始深度抓取官方全学园与全工种配置...")
-                    for (stg in 1..4) {
-                        val stgName = when (stg) { 1 -> "初级学园"; 2 -> "中级学园"; 3 -> "高级学园"; 4 -> "进修学园"; else -> "$stg" }
-                        val (code, events) = querySelectEventsAwait(6100L, petId, schoolStage = stg, careerType = 0)
-                        sendLog(context, "📚 [$stgName] code=$code, 课程数=${events.size}:")
-                        for (e in events) {
-                            sendLog(context, "   📖 ${e.eventName} | sub=${e.subEventType} | 耗时='${e.costTime}' | 消耗='${e.cost}' | 奖励='${e.reward}' | canDo=${e.canDo} | level=${e.level}")
-                        }
-                    }
-                    for (car in 1..3) {
-                        val carName = when (car) { 1 -> "文职商业"; 2 -> "体力搬运"; 3 -> "演艺文化"; else -> "$car" }
-                        val (code, jobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = car)
-                        sendLog(context, "💼 [$carName] code=$code, 岗位数=${jobs.size}:")
-                        for (j in jobs) {
-                            sendLog(context, "   🔨 ${j.eventName} | sub=${j.subEventType} | 耗时='${j.costTime}' | 消耗='${j.cost}' | 奖励='${j.reward}' | canDo=${j.canDo} | level=${j.level}")
-                        }
-                    }
-                    sendLog(context, "✅ [全量数据探测] 抓取完成！")
-                }
+               "inspect" -> {
+                   val petId = ensurePetId(context) ?: return@launch
+                   sendLog(context, "🔍 [全量数据探测] 开始深度抓取官方全学园与全工种配置...")
+                   val map6400 = querySecondMapInfoDetailsAwait(6400L, petId)
+                   sendLog(context, "🗺️ [6400地图] code=${map6400.code}, stage=${map6400.currentStage}, count=${map6400.stages.size}")
+                   for (s in map6400.stages) {
+                       sendLog(context, "   📍 stage=${s.stage}, title='${s.title}', limitStatus=${s.limitStatus}, graduated=${s.isGraduated}")
+                   }
+                   for (stg in 1..4) {
+                       val stgName = when (stg) { 1 -> "初级学园"; 2 -> "中级学园"; 3 -> "高级学园"; 4 -> "进修学园"; else -> "$stg" }
+                       val (code, events) = querySelectEventsAwait(6100L, petId, schoolStage = stg, careerType = 0)
+                       sendLog(context, "📚 [$stgName] code=$code, 课程数=${events.size}:")
+                       for (e in events) {
+                           sendLog(context, "   📖 ${e.eventName} | sub=${e.subEventType} | 耗时='${e.costTime}' | 消耗='${e.cost}' | 奖励='${e.reward}' | canDo=${e.canDo} | level=${e.level}")
+                       }
+                   }
+                   for (car in 1..8) {
+                       val (code, jobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = car)
+                       sendLog(context, "💼 [Career=$car] code=$code, 岗位数=${jobs.size}:")
+                       for (j in jobs) {
+                           sendLog(context, "   🔨 ${j.eventName} | sub=${j.subEventType} | 耗时='${j.costTime}' | 消耗='${j.cost}' | 奖励='${j.reward}' | canDo=${j.canDo} | level=${j.level}")
+                       }
+                   }
+                   sendLog(context, "✅ [全量数据探测] 抓取完成！")
+               }
                 else -> {
                     sendLog(context, "❓ [未知指令] action=$action")
                 }
@@ -1187,23 +1195,34 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             QQPetDirectBridge.SecondMapDetails(-99, 0, 0L, emptyList())
         }
 
-    suspend fun preloadAccountDataAwait(petId: String): Triple<QQPetDirectBridge.SecondMapDetails?, List<QQPetDirectBridge.SelectEvent>?, List<QQPetDirectBridge.SelectEvent>?> {
-        val details = querySecondMapInfoDetailsAwait(6100L, petId)
-        if (details.code == 0) {
-            cachedSchoolDetails = details
-        }
-        val targetStage = if (details.currentStage > 0) details.currentStage else 3
-        val (cCode, courses) = querySelectEventsAwait(6100L, petId, schoolStage = targetStage, careerType = 0)
-        if (cCode == 0 && courses.isNotEmpty()) {
-            cachedSchoolCourses = courses
-        }
-        val targetCareer = when (prefCustomWorkType) { 0 -> 3; 1 -> 1; 2 -> 2; else -> 3 }
-        val (jCode, jobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareer)
-        if (jCode == 0 && jobs.isNotEmpty()) {
-            cachedWorkJobs = jobs
-        }
-        return Triple(cachedSchoolDetails, cachedSchoolCourses, cachedWorkJobs)
-    }
+    data class PreloadedPetData(
+        val schoolDetails: QQPetDirectBridge.SecondMapDetails?,
+        val schoolCourses: List<QQPetDirectBridge.SelectEvent>?,
+        val workPlaces: QQPetDirectBridge.SecondMapDetails?,
+        val workJobs: List<QQPetDirectBridge.SelectEvent>?
+    )
+
+    suspend fun preloadAccountDataAwait(petId: String): PreloadedPetData {
+       val details = querySecondMapInfoDetailsAwait(6100L, petId)
+       if (details.code == 0) {
+           cachedSchoolDetails = details
+       }
+       val targetStage = if (details.currentStage > 0) details.currentStage else 3
+       val (cCode, courses) = querySelectEventsAwait(6100L, petId, schoolStage = targetStage, careerType = 0)
+       if (cCode == 0 && courses.isNotEmpty()) {
+           cachedSchoolCourses = courses
+       }
+       val workMap = querySecondMapInfoDetailsAwait(6400L, petId)
+       if (workMap.code == 0) {
+           cachedWorkPlaces = workMap
+       }
+       val targetCareer = if (prefCustomWorkType > 0) prefCustomWorkType else 3
+       val (jCode, jobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareer)
+       if (jCode == 0 && jobs.isNotEmpty()) {
+           cachedWorkJobs = jobs
+       }
+       return PreloadedPetData(cachedSchoolDetails, cachedSchoolCourses, cachedWorkPlaces, cachedWorkJobs)
+   }
 
     suspend fun querySelectEventsAwait(
         eventType: Long,

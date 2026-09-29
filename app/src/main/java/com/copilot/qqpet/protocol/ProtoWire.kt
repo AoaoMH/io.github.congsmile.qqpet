@@ -118,6 +118,48 @@ class ProtoWire {
             return list
         }
 
+        fun dumpFields(data: ByteArray?): String {
+            if (data == null) return "null"
+            val sb = StringBuilder()
+            val pos = intArrayOf(0)
+            try {
+                while (pos[0] < data.size) {
+                    val tag = readVarint(data, pos)
+                    val field = (tag ushr 3).toInt()
+                    val wireType = (tag and 7L).toInt()
+                    when (wireType) {
+                        0 -> {
+                            val v = readVarint(data, pos)
+                            sb.append(" [t$field(v)=$v]")
+                        }
+                        1 -> {
+                            pos[0] += 8
+                            sb.append(" [t$field(64b)]")
+                        }
+                        2 -> {
+                            val len = readVarint(data, pos).toInt()
+                            val start = pos[0]
+                            pos[0] += len
+                            val str = try { String(data, start, len, Charsets.UTF_8) } catch (_: Throwable) { "" }
+                            val isPrintable = str.isNotEmpty() && str.all { it >= ' ' }
+                            if (isPrintable) {
+                                sb.append(" [t$field(s)='$str']")
+                            } else {
+                                sb.append(" [t$field(b,len=$len)]")
+                            }
+                        }
+                        5 -> {
+                            pos[0] += 4
+                            sb.append(" [t$field(32b)]")
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                sb.append(" (err: ${t.message})")
+            }
+            return sb.toString()
+        }
+
         private fun skipField(data: ByteArray, pos: IntArray, wireType: Int) {
             when (wireType) {
                 0 -> readVarint(data, pos)

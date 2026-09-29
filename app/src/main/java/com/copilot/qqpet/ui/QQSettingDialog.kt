@@ -25,6 +25,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -152,14 +153,22 @@ data class SegmentItem(
     val disabledTip: String? = null
 )
 
+data class WorkPlaceOption(
+    val careerId: Int,
+    val title: String,
+    val enabled: Boolean = true,
+    val disabledTip: String? = null
+)
+
 /**
  * 纯文字自绘制的 iOS 标准 Segmented Control (纯文字分段药丸选择器)
  * 底座：#EBEBED，选中白色高亮卡片：#FFFFFF，未解锁置灰与点击拦截
  */
 class AppleSegmentedControl(
     context: Context,
-    private val items: List<String>,
+    initialItems: List<Any>,
     private var selectedIndex: Int = 0,
+    private val isScrollable: Boolean = false,
     private val onItemSelected: (Int) -> Unit
 ) : LinearLayout(context) {
 
@@ -175,14 +184,35 @@ class AppleSegmentedControl(
         }
         setPadding(dp(2.5f).toInt(), dp(2.5f).toInt(), dp(2.5f).toInt(), dp(2.5f).toInt())
 
-        items.forEachIndexed { index, title ->
-            itemStates.add(SegmentItem(title, enabled = true))
+        val normalizedItems = initialItems.map {
+            when (it) {
+                is SegmentItem -> it
+                is String -> SegmentItem(it, enabled = true)
+                else -> SegmentItem(it.toString(), enabled = true)
+            }
+        }
+        rebuildViews(normalizedItems, selectedIndex)
+    }
+
+    private fun rebuildViews(newItems: List<SegmentItem>, newSelected: Int) {
+        removeAllViews()
+        textViews.clear()
+        itemStates.clear()
+        selectedIndex = if (newSelected in newItems.indices) newSelected else 0
+        newItems.forEachIndexed { index, item ->
+            itemStates.add(item)
             val tv = TextView(context).apply {
-                text = title
+                text = item.title
                 textSize = 12f
                 gravity = Gravity.CENTER
-                setPadding(dp(2f).toInt(), dp(6.5f).toInt(), dp(2f).toInt(), dp(6.5f).toInt())
-                layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1.0f)
+                if (isScrollable) {
+                    setPadding(dp(11f).toInt(), dp(6.5f).toInt(), dp(11f).toInt(), dp(6.5f).toInt())
+                    layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+                } else {
+                    setPadding(dp(2f).toInt(), dp(6.5f).toInt(), dp(2f).toInt(), dp(6.5f).toInt())
+                    layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1.0f)
+                }
+                alpha = if (item.enabled) 1.0f else 0.35f
                 setOnClickListener {
                     val state = itemStates.getOrNull(index)
                     if (state != null && !state.enabled) {
@@ -206,8 +236,12 @@ class AppleSegmentedControl(
         updateSelection()
     }
 
+    fun rebuildItems(newItems: List<SegmentItem>, newSelectedIndex: Int = 0) {
+        rebuildViews(newItems, newSelectedIndex)
+    }
+
     fun setSelection(index: Int) {
-        if (index in items.indices && index != selectedIndex) {
+        if (index in itemStates.indices && index != selectedIndex) {
             selectedIndex = index
             updateSelection()
         }
@@ -220,7 +254,10 @@ class AppleSegmentedControl(
     }
 
     fun updateItemStates(newStates: List<SegmentItem>) {
-        if (newStates.size != itemStates.size) return
+        if (newStates.size != itemStates.size) {
+            rebuildViews(newStates, selectedIndex)
+            return
+        }
         for (i in newStates.indices) {
             itemStates[i] = newStates[i]
             val tv = textViews.getOrNull(i) ?: continue
@@ -245,6 +282,14 @@ class AppleSegmentedControl(
                 tv.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 tv.setTextColor(Color.parseColor("#8E8E93"))
                 tv.background = null
+            }
+        }
+        if (isScrollable) {
+            post {
+                val selTv = textViews.getOrNull(selectedIndex)
+                if (selTv != null) {
+                    (parent as? HorizontalScrollView)?.smoothScrollTo((selTv.left - dp(24f)).toInt().coerceAtLeast(0), 0)
+                }
             }
         }
     }
@@ -565,9 +610,13 @@ object QQSettingDialog {
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             setTextColor(Color.parseColor("#1C1C1E"))
         }
+        var workPlaceOptions = buildWorkPlaceOptions(PetAdventureEngine.cachedWorkPlaces)
         val currentWorkTypePref = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
+        val initialWorkPlaceIndex = workPlaceOptions.indexOfFirst { it.careerId == currentWorkTypePref }.let { if (it >= 0) it else 0 }
+
         val workSubtitle = TextView(context).apply {
-            text = getWorkTypeDesc(currentWorkTypePref)
+            val curOption = workPlaceOptions.getOrNull(initialWorkPlaceIndex)
+            text = getWorkTypeDesc(currentWorkTypePref, curOption?.title)
             textSize = 13f
             setTextColor(Color.parseColor("#8E8E93"))
             setPadding(0, dp(context, 2), 0, 0)
@@ -583,54 +632,77 @@ object QQSettingDialog {
         }
 
         val workTypeLabel = TextView(context).apply {
-            text = "行业偏好"
+            text = "打工场所 (职业小镇动态识别)"
             textSize = 12f
             setTextColor(Color.parseColor("#8E8E93"))
             setPadding(0, dp(context, 4), 0, dp(context, 4))
         }
+
+        val updateWorkDurSeg: (AppleSegmentedControl?, List<QQPetDirectBridge.SelectEvent>?) -> Unit = { seg, jobs ->
+            if (!jobs.isNullOrEmpty() && seg != null) {
+                val j10 = jobs.find { it.costTime.contains("10") }
+                val j45 = jobs.find { it.costTime.contains("45") }
+                val j2h = jobs.find { it.costTime.contains("2小时") }
+                val j4h = jobs.find { it.costTime.contains("4小时") }
+                val can10 = j10?.canDo ?: true
+                val can45 = j45?.canDo ?: true
+                val can2h = j2h?.canDo ?: true
+                val can4h = j4h?.canDo ?: true
+                val jobItems = listOf(
+                    SegmentItem("智能挂机", enabled = true),
+                    SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未满足解锁条件" else null),
+                    SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未满足解锁条件" else null),
+                    SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未满足解锁条件" else null),
+                    SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未满足解锁条件" else null)
+                )
+                seg.updateItemStates(jobItems)
+            }
+        }
+
+        val workTypeScrollView = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            clipToPadding = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
         var workDurSeg: AppleSegmentedControl? = null
         val workTypeSeg = AppleSegmentedControl(
             context,
-            listOf("演艺文化(高收)", "文职商业", "体力搬运", "三业轮换"),
-            currentWorkTypePref
+            workPlaceOptions.map { SegmentItem(it.title, enabled = it.enabled, disabledTip = it.disabledTip) },
+            initialWorkPlaceIndex,
+            isScrollable = true
         ) { sel ->
-            prefs.edit().putInt(PreferencesHelper.KEY_WORK_TYPE, sel).commit()
-            workSubtitle.text = getWorkTypeDesc(sel)
+            val opt = workPlaceOptions.getOrNull(sel) ?: return@AppleSegmentedControl
+            val selCareer = opt.careerId
+            prefs.edit().putInt(PreferencesHelper.KEY_WORK_TYPE, selCareer).commit()
+            workSubtitle.text = getWorkTypeDesc(selCareer, opt.title)
             syncConfig(prefs, engine, context)
             val active = engine ?: HookEntry.globalEngine
             if (active != null) {
                 CoroutineScope(Dispatchers.IO).launch {
                     val petId = PetAdventureEngine.cachedPetId ?: active.queryOwnPetAwait().second
                     if (!petId.isNullOrEmpty()) {
-                        val career = when (sel) { 0 -> 3; 1 -> 1; 2 -> 2; else -> 3 }
+                        val career = if (selCareer > 0) selCareer else 3
                         val (jCode, jobs) = active.querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = career)
                         if (jCode == 0 && jobs.isNotEmpty()) {
                             PetAdventureEngine.cachedWorkJobs = jobs
                             mainHandler.post {
-                                val j10 = jobs.find { it.costTime.contains("10") }
-                                val j45 = jobs.find { it.costTime.contains("45") }
-                                val j2h = jobs.find { it.costTime.contains("2小时") }
-                                val j4h = jobs.find { it.costTime.contains("4小时") }
-                                val can10 = j10?.canDo ?: true
-                                val can45 = j45?.canDo ?: true
-                                val can2h = j2h?.canDo ?: true
-                                val can4h = j4h?.canDo ?: true
-                                val jobItems = listOf(
-                                    SegmentItem("智能挂机", enabled = true),
-                                    SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未解锁" else null),
-                                    SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未解锁" else null),
-                                    SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未解锁" else null),
-                                    SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未解锁" else null)
-                                )
-                                workDurSeg?.updateItemStates(jobItems)
+                                updateWorkDurSeg(workDurSeg, jobs)
                             }
                         }
                     }
                 }
             }
         }
+        workTypeScrollView.addView(
+            workTypeSeg,
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        )
         workPanel.addView(workTypeLabel)
-        workPanel.addView(workTypeSeg)
+        workPanel.addView(workTypeScrollView)
 
         val currentWorkDurPref = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
         val workDurLabel = TextView(context).apply {
@@ -647,6 +719,7 @@ object QQSettingDialog {
             prefs.edit().putInt(PreferencesHelper.KEY_WORK_DURATION, sel).commit()
             syncConfig(prefs, engine, context)
         }
+        updateWorkDurSeg(workDurSeg, PetAdventureEngine.cachedWorkJobs)
         workPanel.addView(workDurLabel)
         workPanel.addView(workDurSeg)
 
@@ -1045,14 +1118,15 @@ object QQSettingDialog {
         }
 
         // 应用账号数据解锁状态与置灰拦截
-        val applyUnlockStates: (QQPetDirectBridge.SecondMapDetails?, List<QQPetDirectBridge.SelectEvent>?, List<QQPetDirectBridge.SelectEvent>?) -> Unit = { details, _, jobs ->
-            if (details != null && details.code == 0) {
-                val curStage = details.currentStage
+        val applyUnlockStates: (PetAdventureEngine.PreloadedPetData) -> Unit = { preloaded ->
+            val schoolMap = preloaded.schoolDetails
+            if (schoolMap != null && schoolMap.code == 0) {
+                val curStage = schoolMap.currentStage
                 val stageItems = mutableListOf<SegmentItem>()
                 stageItems.add(SegmentItem("自适应", enabled = true))
                 val stageNames = listOf("初级", "中级", "高级", "进修")
                 for (s in 1..4) {
-                    val sInfo = details.stages.find { it.stage == s }
+                    val sInfo = schoolMap.stages.find { it.stage == s }
                     val name = stageNames[s - 1]
                     val isGrad = sInfo?.isGraduated == true
                     val isLocked = (sInfo?.limitStatus ?: 0) != 0 && (sInfo?.limitStatus ?: 0) != 2
@@ -1081,39 +1155,44 @@ object QQSettingDialog {
                     }
                     studySubtitle.text = "已锁定 $stageTitle (已解锁最高学府)"
                 }
-                statusAttributesText.text = "小宠资质 · 力量 ${details.power}  智力 ${details.intel}  魅力 ${details.charm}"
+                statusAttributesText.text = "小宠资质 · 力量 ${schoolMap.power}  智力 ${schoolMap.intel}  魅力 ${schoolMap.charm}"
             }
 
-            if (!jobs.isNullOrEmpty()) {
-                val j10 = jobs.find { it.costTime.contains("10") }
-                val j45 = jobs.find { it.costTime.contains("45") }
-                val j2h = jobs.find { it.costTime.contains("2小时") }
-                val j4h = jobs.find { it.costTime.contains("4小时") }
-                val can10 = j10?.canDo ?: true
-                val can45 = j45?.canDo ?: true
-                val can2h = j2h?.canDo ?: true
-                val can4h = j4h?.canDo ?: true
-                val jobItems = listOf(
-                    SegmentItem("智能挂机", enabled = true),
-                    SegmentItem(if (can10) "10分钟" else "10分(锁)", enabled = can10, disabledTip = if (!can10) "10分钟兼职暂未满足解锁条件" else null),
-                    SegmentItem(if (can45) "45分钟" else "45分(锁)", enabled = can45, disabledTip = if (!can45) "45分钟兼职暂未满足解锁条件" else null),
-                    SegmentItem(if (can2h) "2小时" else "2小时(锁)", enabled = can2h, disabledTip = if (!can2h) "2小时兼职暂未满足解锁条件" else null),
-                    SegmentItem(if (can4h) "4小时" else "4小时(锁)", enabled = can4h, disabledTip = if (!can4h) "4小时兼职暂未满足解锁条件" else null)
-                )
-                workDurSeg?.updateItemStates(jobItems)
+            // 打工小镇全场所动态更新与解锁状态联动
+            val workMap = preloaded.workPlaces
+            if (workMap != null && workMap.code == 0 && workMap.stages.isNotEmpty()) {
+                workPlaceOptions = buildWorkPlaceOptions(workMap)
+                val curPref = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
+                val matchedIdx = workPlaceOptions.indexOfFirst { it.careerId == curPref }.let { if (it >= 0) it else 0 }
+                val segItems = workPlaceOptions.map {
+                    SegmentItem(it.title, enabled = it.enabled, disabledTip = it.disabledTip)
+                }
+                workTypeSeg.rebuildItems(segItems, matchedIdx)
+                val activeOption = workPlaceOptions.getOrNull(matchedIdx)
+                workSubtitle.text = getWorkTypeDesc(activeOption?.careerId ?: 0, activeOption?.title)
             }
+
+            // 打工岗位工时动态更新
+            updateWorkDurSeg(workDurSeg, preloaded.workJobs)
         }
 
-        applyUnlockStates(PetAdventureEngine.cachedSchoolDetails, PetAdventureEngine.cachedSchoolCourses, PetAdventureEngine.cachedWorkJobs)
+        applyUnlockStates(
+            PetAdventureEngine.PreloadedPetData(
+                PetAdventureEngine.cachedSchoolDetails,
+                PetAdventureEngine.cachedSchoolCourses,
+                PetAdventureEngine.cachedWorkPlaces,
+                PetAdventureEngine.cachedWorkJobs
+            )
+        )
 
         val activeEngine = engine ?: HookEntry.globalEngine
         if (activeEngine != null) {
             CoroutineScope(Dispatchers.IO).launch {
                 val petId = PetAdventureEngine.cachedPetId ?: activeEngine.queryOwnPetAwait().second
                 if (!petId.isNullOrEmpty()) {
-                    val (d, c, j) = activeEngine.preloadAccountDataAwait(petId)
+                    val preloaded = activeEngine.preloadAccountDataAwait(petId)
                     mainHandler.post {
-                        applyUnlockStates(d, c, j)
+                        applyUnlockStates(preloaded)
                     }
                 }
             }
@@ -1224,13 +1303,50 @@ object QQSettingDialog {
         }
     }
 
-    private fun getWorkTypeDesc(mode: Int): String {
-        return when (mode) {
-            0 -> "演艺文化行业 · 最高收益"
-            1 -> "文职商业行业 · 稳定收益"
-            2 -> "体力搬运行业 · 体能锻炼"
-            else -> "三行业循环派遣"
+    private fun getWorkTypeDesc(careerId: Int, placeTitle: String? = null): String {
+        if (careerId <= 0) {
+            val starTower = PetAdventureEngine.cachedWorkPlaces?.stages?.find { it.stage == 3 }
+            return if (starTower != null && starTower.limitStatus == 0) {
+                "智能推荐 · 优先${starTower.title}(最高收益)"
+            } else {
+                "智能推荐 · 优先最高收益已解锁场所"
+            }
         }
+        val cleanName = (placeTitle ?: when (careerId) {
+            1 -> "彩虹画室"
+            2 -> "迷雾侦探所"
+            3 -> "星尘魔法塔"
+            4 -> "咕噜厨房"
+            6 -> "云朵梦舍"
+            8 -> "风铃旅社"
+            else -> "职业场所#$careerId"
+        }).replace("(锁)", "").trim()
+        return "$cleanName · 专属场所打工派遣"
+    }
+
+    private fun buildWorkPlaceOptions(workDetails: QQPetDirectBridge.SecondMapDetails?): List<WorkPlaceOption> {
+        val list = mutableListOf<WorkPlaceOption>()
+        list.add(WorkPlaceOption(0, "智能推荐", enabled = true))
+        if (workDetails != null && workDetails.code == 0 && workDetails.stages.isNotEmpty()) {
+            for (s in workDetails.stages) {
+                val isLocked = (s.limitStatus != 0)
+                val rawTitle = s.title.trim()
+                val realTitle = if (rawTitle.isNotEmpty() && rawTitle != "???") rawTitle else "隐藏职业"
+                val displayTitle = if (isLocked) "$realTitle(锁)" else realTitle
+                val tip = if (isLocked) (if (s.lockReason.isNotEmpty()) s.lockReason else "还没有解锁这个职业") else null
+                list.add(WorkPlaceOption(s.stage, displayTitle, enabled = !isLocked, disabledTip = tip))
+            }
+        } else {
+            list.add(WorkPlaceOption(1, "彩虹画室", enabled = true))
+            list.add(WorkPlaceOption(2, "迷雾侦探所", enabled = true))
+            list.add(WorkPlaceOption(3, "星尘魔法塔", enabled = true))
+            list.add(WorkPlaceOption(4, "咕噜厨房", enabled = true))
+            list.add(WorkPlaceOption(5, "隐藏工坊(锁)", enabled = false, disabledTip = "还没有解锁这个职业"))
+            list.add(WorkPlaceOption(6, "云朵梦舍", enabled = true))
+            list.add(WorkPlaceOption(7, "隐藏工坊(锁)", enabled = false, disabledTip = "还没有解锁这个职业"))
+            list.add(WorkPlaceOption(8, "风铃旅社", enabled = true))
+        }
+        return list
     }
 
     private fun triggerAction(context: Context, engine: PetAdventureEngine?, action: String) {

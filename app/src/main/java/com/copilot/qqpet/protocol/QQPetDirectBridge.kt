@@ -23,12 +23,13 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         val reward: String = ""
     )
 
-    data class SchoolStageInfo(
-        val stage: Int,
-        val title: String,
-        val limitStatus: Int,
-        val isGraduated: Boolean
-    )
+   data class SchoolStageInfo(
+       val stage: Int,
+       val title: String,
+       val limitStatus: Int,
+       val isGraduated: Boolean = false,
+       val lockReason: String = ""
+   )
 
     data class SecondMapDetails(
         val code: Int,
@@ -659,22 +660,25 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
             var stage = 0
             var lastSub = 0L
             val stageList = mutableListOf<SchoolStageInfo>()
-            var power = 0L
-            var intel = 0L
-            var charm = 0L
-            if (code == 0 && data != null) {
-                stage = (ProtoWire.firstVarint(data, 4) ?: 0L).toInt()
-                lastSub = ProtoWire.firstVarint(data, 5) ?: 0L
-                val itemBytesList = ProtoWire.allBytes(data, 1)
-                for (itemBytes in itemBytesList) {
-                    val title = ProtoWire.firstString(itemBytes, 1) ?: ""
-                    val limitStatus = (ProtoWire.firstVarint(itemBytes, 4) ?: 0L).toInt()
-                    val stg = (ProtoWire.firstVarint(itemBytes, 21) ?: 0L).toInt()
-                    val graduated = (ProtoWire.firstVarint(itemBytes, 23) ?: 0L) != 0L
-                    if (stg > 0) {
-                        stageList.add(SchoolStageInfo(stg, title, limitStatus, graduated))
-                    }
-                }
+           var power = 0L
+           var intel = 0L
+           var charm = 0L
+           if (code == 0 && data != null) {
+               Log.i(TAG, "querySecondMapInfoDetails raw: eventType=$eventType, fields=${ProtoWire.dumpFields(data)}")
+               stage = (ProtoWire.firstVarint(data, 4) ?: 0L).toInt()
+               lastSub = ProtoWire.firstVarint(data, 5) ?: 0L
+               val itemBytesList = ProtoWire.allBytes(data, 1)
+               for (itemBytes in itemBytesList) {
+                   Log.i(TAG, "querySecondMapInfoDetails item: eventType=$eventType, fields=${ProtoWire.dumpFields(itemBytes)}")
+                  val title = ProtoWire.firstString(itemBytes, 1) ?: ""
+                  val limitStatus = (ProtoWire.firstVarint(itemBytes, 4) ?: 0L).toInt()
+                   val lockReason = ProtoWire.firstString(itemBytes, 5) ?: ""
+                   val id = (ProtoWire.firstVarint(itemBytes, 20) ?: ProtoWire.firstVarint(itemBytes, 21) ?: 0L).toInt()
+                   val graduated = (ProtoWire.firstVarint(itemBytes, 23) ?: 0L) != 0L
+                   if (id > 0) {
+                       stageList.add(SchoolStageInfo(id, title, limitStatus, graduated, lockReason))
+                   }
+               }
                 val attrBytes = ProtoWire.firstBytes(data, 2)
                 if (attrBytes != null) {
                     val pBytes = ProtoWire.firstBytes(attrBytes, 1)
