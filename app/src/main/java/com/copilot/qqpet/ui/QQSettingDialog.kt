@@ -626,6 +626,7 @@ object QQSettingDialog {
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             setTextColor(colors.primaryText)
         }
+       (engine ?: HookEntry.globalEngine)?.verifyAndSyncAccountSession(context)
        val statusAttributesText = TextView(context).apply {
            val d = PetAdventureEngine.cachedSchoolDetails
            val petId = PetAdventureEngine.cachedPetId
@@ -890,7 +891,10 @@ object QQSettingDialog {
             val active = engine ?: HookEntry.globalEngine
             if (active != null) {
                 CoroutineScope(Dispatchers.IO).launch {
-                    val petId = PetAdventureEngine.cachedPetId ?: active.queryOwnPetAwait().second
+                    active.verifyAndSyncAccountSession(context)
+                    val petId = PetAdventureEngine.cachedPetId ?: active.queryOwnPetAwait().second?.also {
+                        PetAdventureEngine.saveScopedPetId(context, it)
+                    }
                     if (!petId.isNullOrEmpty()) {
                         val career = if (selCareer > 0) selCareer else 3
                         val (jCode, jobs) = active.querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = career)
@@ -1506,7 +1510,10 @@ object QQSettingDialog {
         val activeEngine = engine ?: HookEntry.globalEngine
         if (activeEngine != null) {
             CoroutineScope(Dispatchers.IO).launch {
-                val petId = PetAdventureEngine.cachedPetId ?: activeEngine.queryOwnPetAwait().second
+                activeEngine.verifyAndSyncAccountSession(context)
+                val petId = PetAdventureEngine.cachedPetId ?: activeEngine.queryOwnPetAwait().second?.also {
+                    PetAdventureEngine.saveScopedPetId(context, it)
+                }
                 if (!petId.isNullOrEmpty()) {
                     val preloaded = activeEngine.preloadAccountDataAwait(petId)
                     mainHandler.post {

@@ -2,6 +2,7 @@ package com.copilot.qqpet.protocol
 
 import android.util.Base64
 import android.util.Log
+import com.copilot.qqpet.engine.AccountSessionGuard
 import java.nio.charset.StandardCharsets
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
@@ -132,6 +133,14 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         var lastSelectEventsFatigueTip: String? = null
             private set
 
+        fun clearStaticRuntimeCache() {
+            cachedPetAttributes = null
+            lastFatigueDetected = false
+            lastFatigueTip = null
+            lastSelectEventsFatigued = false
+            lastSelectEventsFatigueTip = null
+        }
+
         fun findDelegateClass(classLoader: ClassLoader): Pair<Class<*>?, Method?> {
             try {
                 val observerCls = Class.forName(OBSERVER_CLASS, true, classLoader)
@@ -207,9 +216,37 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
     }
 
     /**
+     * 实时从宿主 MobileQQ 运行时获取当前登录的 QQ 号 (UIN)
+     * 若未登录或过渡态返回 "0"，则统一返回空字符串 ""
+     */
+    fun getCurrentRuntimeUin(): String {
+        try {
+            val mobileQQClass = Class.forName("mqq.app.MobileQQ", true, classLoader)
+            val sMobileQQField = mobileQQClass.getField("sMobileQQ")
+            val sMobileQQ = sMobileQQField.get(null)
+            if (sMobileQQ != null) {
+                val peekMethod = sMobileQQ.javaClass.getMethod("peekAppRuntime")
+                val runtime = peekMethod.invoke(sMobileQQ)
+                if (runtime != null) {
+                    val uinMethod = runtime.javaClass.getMethod("getCurrentAccountUin")
+                    val uin = (uinMethod.invoke(runtime) as? String)?.trim()
+                    if (AccountSessionGuard.isValidUin(uin)) {
+                        return uin!!
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+        return ""
+    }
+
+    /**
      * 解析主人 UIN (优先从 base64 宠物ID 解析，兜底从宿主 MobileQQ 运行时获取)
      */
     fun resolveUin(petId: String): String {
+        val fromPetId = AccountSessionGuard.extractOwnerUinFromPetId(petId)
+        if (fromPetId.isNotEmpty()) return fromPetId
+        val runtimeUin = getCurrentRuntimeUin()
+        if (runtimeUin.isNotEmpty()) return runtimeUin
         try {
             val decoded = String(Base64.decode(petId, Base64.DEFAULT), StandardCharsets.UTF_8)
             val uinPart = decoded.substringBefore("-")

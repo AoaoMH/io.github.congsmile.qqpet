@@ -126,6 +126,7 @@ class HookEntry : IXposedHookLoadPackage {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val activity = param.thisObject as? Activity ?: return
                         if (activity.packageName == TARGET_PACKAGE) {
+                            globalEngine?.verifyAndSyncAccountSession(activity.applicationContext)
                             globalEngine?.startBackgroundLoop(activity.applicationContext)
                         }
                     }

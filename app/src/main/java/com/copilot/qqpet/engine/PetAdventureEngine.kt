@@ -36,6 +36,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         var cachedPetId: String? = null
         var lastActiveStoryId: String? = null
         @Volatile
+        var currentActiveUin: String = ""
+        @Volatile
         var isLoopRunning = false
 
         // 跨进程配置开关（默认全开）
@@ -90,14 +92,16 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            }
            try {
                val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
-               val savedDay = prefs.getString("key_liked_uins_date", "") ?: ""
+               val dateKey = AccountSessionGuard.scopedKey("key_liked_uins_date", currentActiveUin)
+               val csvKey = AccountSessionGuard.scopedKey("key_liked_uins_csv", currentActiveUin)
+               val savedDay = prefs.getString(dateKey, "") ?: ""
                if (savedDay == todayKey) {
-                   val csv = prefs.getString("key_liked_uins_csv", "") ?: ""
+                   val csv = prefs.getString(csvKey, "") ?: ""
                    if (csv.isNotEmpty()) {
                        csv.split(",").mapNotNull { it.trim().toLongOrNull() }.forEach { todayLikedUins.add(it) }
                    }
                } else if (savedDay.isNotEmpty()) {
-                   prefs.edit().putString("key_liked_uins_date", todayKey).putString("key_liked_uins_csv", "").commit()
+                   prefs.edit().putString(dateKey, todayKey).putString(csvKey, "").commit()
                }
            } catch (_: Throwable) {}
        }
@@ -111,10 +115,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            todayLikedUins.add(uin)
            try {
                val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+               val dateKey = AccountSessionGuard.scopedKey("key_liked_uins_date", currentActiveUin)
+               val csvKey = AccountSessionGuard.scopedKey("key_liked_uins_csv", currentActiveUin)
                val csv = synchronized(todayLikedUins) { todayLikedUins.joinToString(",") }
                prefs.edit()
-                   .putString("key_liked_uins_date", todayKey)
-                   .putString("key_liked_uins_csv", csv)
+                   .putString(dateKey, todayKey)
+                   .putString(csvKey, csv)
                    .commit()
            } catch (_: Throwable) {}
        }
@@ -128,18 +134,21 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            }
            try {
                val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
-               val savedDay = prefs.getString("key_coinbag_date", "") ?: ""
+               val dateKey = AccountSessionGuard.scopedKey("key_coinbag_date", currentActiveUin)
+               val csvKey = AccountSessionGuard.scopedKey("key_coinbag_ids_csv", currentActiveUin)
+               val limitKey = AccountSessionGuard.scopedKey("key_coinbag_limit_reached", currentActiveUin)
+               val savedDay = prefs.getString(dateKey, "") ?: ""
                if (savedDay == todayKey) {
-                   val csv = prefs.getString("key_coinbag_ids_csv", "") ?: ""
+                   val csv = prefs.getString(csvKey, "") ?: ""
                    if (csv.isNotEmpty()) {
                        csv.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { todayClaimedBagIds.add(it) }
                    }
-                   coinBagDailyLimitReached = prefs.getBoolean("key_coinbag_limit_reached", false)
+                   coinBagDailyLimitReached = prefs.getBoolean(limitKey, false)
                } else if (savedDay.isNotEmpty()) {
                    prefs.edit()
-                       .putString("key_coinbag_date", todayKey)
-                       .putString("key_coinbag_ids_csv", "")
-                       .putBoolean("key_coinbag_limit_reached", false)
+                       .putString(dateKey, todayKey)
+                       .putString(csvKey, "")
+                       .putBoolean(limitKey, false)
                        .commit()
                }
            } catch (_: Throwable) {}
@@ -160,12 +169,58 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            }
            try {
                val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+               val dateKey = AccountSessionGuard.scopedKey("key_coinbag_date", currentActiveUin)
+               val csvKey = AccountSessionGuard.scopedKey("key_coinbag_ids_csv", currentActiveUin)
+               val limitKey = AccountSessionGuard.scopedKey("key_coinbag_limit_reached", currentActiveUin)
                val csv = synchronized(todayClaimedBagIds) { todayClaimedBagIds.joinToString(",") }
                prefs.edit()
-                   .putString("key_coinbag_date", todayKey)
-                   .putString("key_coinbag_ids_csv", csv)
-                   .putBoolean("key_coinbag_limit_reached", coinBagDailyLimitReached)
+                   .putString(dateKey, todayKey)
+                   .putString(csvKey, csv)
+                   .putBoolean(limitKey, coinBagDailyLimitReached)
                    .commit()
+           } catch (_: Throwable) {}
+       }
+
+       /**
+        * 清空与特定账号强绑定的内存态缓存（切换大小号时调用，防止大号三围/已毕业/StoryID 串到小号）
+        */
+       fun clearAccountBoundMemoryCache() {
+           cachedPetId = null
+           lastActiveStoryId = null
+           currentTaskEndTimeMillis = 0L
+           currentTaskTypeName = "进阶修习中"
+           cachedSchoolDetails = null
+           cachedWorkPlaces = null
+           cachedWorkJobs = null
+           cachedSchoolCourses = null
+           learnedStudySubEvent = null
+           learnedStudyName = null
+           learnedWorkSubEvent = null
+           learnedWorkName = null
+           todayLikedUins.clear()
+           todayClaimedBagIds.clear()
+           coinBagDailyLimitReached = false
+           QQPetDirectBridge.clearStaticRuntimeCache()
+       }
+
+       /**
+        * 将验证通过的本人 petId 同时写入当前 UIN 专属分桶与兼容键
+        */
+       fun saveScopedPetId(context: Context, petId: String, runtimeUin: String? = null) {
+           if (petId.isBlank()) return
+           val ownerUin = AccountSessionGuard.extractOwnerUinFromPetId(petId)
+               .ifEmpty { runtimeUin?.trim().orEmpty() }
+           cachedPetId = petId
+           if (AccountSessionGuard.isValidUin(ownerUin)) {
+               currentActiveUin = ownerUin
+           }
+           try {
+               val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+               val editor = prefs.edit().putString("key_cached_pet_id", petId)
+               if (AccountSessionGuard.isValidUin(ownerUin)) {
+                   editor.putString(AccountSessionGuard.scopedKey("key_cached_pet_id", ownerUin), petId)
+               }
+               editor.commit()
            } catch (_: Throwable) {}
        }
 
@@ -294,6 +349,55 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         val storyId: String?
     )
 
+    /**
+     * 校验当前 QQ 登录账号 (UIN) 与内存/本地缓存的 petId 是否归属同一账号。
+     * - 若检测到切换了账号（例如从大号切到小号），立即清空大号残留的 petId、三围、学园毕业状态与任务倒计时；
+     * - 若同一账号重登或重启，平滑复用该账号分桶下的 petId 缓存，零额外开销。
+     */
+    fun verifyAndSyncAccountSession(context: Context): String {
+        val liveUin = bridge.getCurrentRuntimeUin()
+        val prefs = try {
+            context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+        } catch (_: Throwable) {
+            null
+        }
+
+        val memPetId = cachedPetId
+        val uinChanged = AccountSessionGuard.isValidUin(liveUin) &&
+            AccountSessionGuard.isValidUin(currentActiveUin) &&
+            liveUin != currentActiveUin
+        val petIdMismatch = !memPetId.isNullOrBlank() &&
+            !AccountSessionGuard.isPetIdBelongingToUin(memPetId, liveUin)
+
+        if (uinChanged || petIdMismatch) {
+            val oldOwner = AccountSessionGuard.extractOwnerUinFromPetId(memPetId).ifEmpty { currentActiveUin }
+            Log.w(TAG, "🔄 检测到 QQ 账号切换 ($oldOwner -> $liveUin)，立即清理旧账号缓存并切换分桶！")
+            clearAccountBoundMemoryCache()
+            currentActiveUin = liveUin
+        } else if (AccountSessionGuard.isValidUin(liveUin)) {
+            currentActiveUin = liveUin
+        }
+
+        val scopedKey = AccountSessionGuard.scopedKey("key_cached_pet_id", liveUin)
+        val scopedSaved = prefs?.getString(scopedKey, null)
+        val legacySaved = prefs?.getString("key_cached_pet_id", null)
+
+        val resolvedPetId = AccountSessionGuard.resolveActivePetId(
+            currentRuntimeUin = liveUin,
+            memoryPetId = cachedPetId,
+            scopedSavedPetId = scopedSaved,
+            legacySavedPetId = legacySaved
+        )
+
+        if (!resolvedPetId.isNullOrEmpty()) {
+            saveScopedPetId(context, resolvedPetId, liveUin)
+        } else {
+            cachedPetId = null
+        }
+
+        return liveUin
+    }
+
     fun reloadConfig(context: Context) {
         try {
             val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
@@ -315,10 +419,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            prefCareEnergyThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
            prefCareCleanThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
 
-           val savedPetId = prefs.getString("key_cached_pet_id", null)
-            if (!savedPetId.isNullOrEmpty()) {
-                cachedPetId = savedPetId
-            }
+           val liveUin = verifyAndSyncAccountSession(context)
 
             val lSub = prefs.getLong("key_learned_study_sub", 0L)
             if (lSub in listOf(6101L, 6201L, 6301L)) {
@@ -339,8 +440,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 prefs.edit().remove("key_learned_work_sub").remove("key_learned_work_name").commit()
             }
 
-            val savedEndTime = prefs.getLong("key_task_end_time", 0L)
-            val savedTaskType = prefs.getString("key_task_type", null)
+            val taskEndKey = AccountSessionGuard.scopedKey("key_task_end_time", liveUin)
+            val taskTypeKey = AccountSessionGuard.scopedKey("key_task_type", liveUin)
+            val savedEndTime = prefs.getLong(taskEndKey, prefs.getLong("key_task_end_time", 0L))
+            val savedTaskType = prefs.getString(taskTypeKey, prefs.getString("key_task_type", null))
             if (savedEndTime > System.currentTimeMillis() && !savedTaskType.isNullOrEmpty()) {
                 currentTaskEndTimeMillis = savedEndTime
                 currentTaskTypeName = savedTaskType
@@ -449,12 +552,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 delay(30 * 1000L)
                 return
             }
-            cachedPetId = fetchedId
+            saveScopedPetId(context, fetchedId)
             petId = fetchedId
-            try {
-                val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
-                prefs.edit().putString("key_cached_pet_id", fetchedId).commit()
-            } catch (_: Throwable) {}
             sendLog(context, "✅ [巡检] 成功锁定宠物 ID: $petId")
         }
 
@@ -477,9 +576,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 currentStatusText = "$taskType · 剩余 ${mins}分${secs}秒"
                 try {
                     val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+                    val liveUin = currentActiveUin
                     prefs.edit()
                         .putLong("key_task_end_time", currentTaskEndTimeMillis)
                         .putString("key_task_type", currentTaskTypeName)
+                        .putLong(AccountSessionGuard.scopedKey("key_task_end_time", liveUin), currentTaskEndTimeMillis)
+                        .putString(AccountSessionGuard.scopedKey("key_task_type", liveUin), currentTaskTypeName)
                         .commit()
                 } catch (_: Throwable) {}
 
@@ -525,6 +627,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 currentTaskEndTimeMillis = 0L
             } else if (codeSettle == 135004) {
                 sendLog(context, "⏳ [结算] 服务端返回 135004 (任务进行中尚未到达结算时间)")
+            } else if (codeSettle == 135075) {
+                sendLog(context, "🔄 [结算自愈] 检测到 code=135075 (状态冲突或跨号切换)，正在重新校准真实宠物 ID...")
+                recoverFrom135075(context)
             } else {
                 sendLog(context, "ℹ️ [结算] 结算回包: code=$codeSettle (无需结算或已领取)")
                 lastActiveStoryId = null
@@ -677,6 +782,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         sendLog(context, "🎉 [探险成功] 顺利启程！StoryID: $storyId")
                         delay(5 * 1000L)
                         return
+                    } else if (codeAdv == 135075) {
+                        sendLog(context, "🔄 [探险自愈] 服务端返回 135075，正在校准当前账号宠物 ID 与在途状态...")
+                        recoverFrom135075(context)
                     } else {
                         sendLog(context, "ℹ️ [探险跳过] 回包 code=$codeAdv")
                     }
@@ -774,6 +882,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                     }
                 }
                 return true
+           } else if (codeSchool == 135075) {
+               sendLog(context, "🔄 [选课自愈] 服务端返回 135075，正在重新同步当前账号宠物 ID 与在途任务...")
+               recoverFrom135075(context)
+               return false
            } else {
                sendLog(context, "⚠️ [动态选课] ${targetCourse.eventName} 报名回包 code=$codeSchool, 服务端说明: ${errorMsg ?: "无"}")
            }
@@ -923,6 +1035,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                    }
                }
                return true
+          } else if (codeWork == 135075) {
+              sendLog(context, "🔄 [打工自愈] 服务端返回 135075，正在重新同步当前账号宠物 ID 与在途任务...")
+              recoverFrom135075(context)
+              return false
           } else {
               sendLog(context, "⚠️ [动态打工] ${targetJob.eventName} 开工回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
           }
@@ -1056,6 +1172,18 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         currentTaskTypeName = "森林探险中"
                         currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
                         sendLog(context, "🎉 [冒险实测] 冒险探索成功启程！StoryID: $storyId")
+                    } else if (aCode == 135075) {
+                        sendLog(context, "🔄 [冒险自愈] 回包 code=135075，正在自动刷新当前账号宠物 ID 并重试...")
+                        val newPetId = recoverFrom135075(context)
+                        if (!newPetId.isNullOrEmpty() && newPetId != petId) {
+                            val (retryCode, retrySid) = startAdventureAwait(newPetId)
+                            if (retryCode == 0 && !retrySid.isNullOrEmpty()) {
+                                lastActiveStoryId = retrySid
+                                currentTaskTypeName = "森林探险中"
+                                currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
+                                sendLog(context, "🎉 [冒险实测] 切换新号宠物 ID 后探险成功启程！StoryID: $retrySid")
+                            }
+                        }
                     } else {
                         sendLog(context, "ℹ️ [冒险实测] 探险回包 code=$aCode (可能正在其他任务中)")
                     }
@@ -1182,28 +1310,52 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             sendLog(context, "❌ [错误] QQ 发包代理尚未就绪，请稍候重试")
             return null
         }
+        verifyAndSyncAccountSession(context)
         var petId = cachedPetId
         if (petId.isNullOrEmpty()) {
-            val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
-            val savedPetId = prefs.getString("key_cached_pet_id", null)
-            if (!savedPetId.isNullOrEmpty()) {
-                cachedPetId = savedPetId
-                return savedPetId
-            }
             sendLog(context, "⏳ [鉴权] 正在锁定本人宠物 ID...")
             val (codePet, fetchedId) = queryOwnPetAwait()
             if (fetchedId.isNullOrEmpty()) {
                 sendLog(context, "❌ [鉴权] 获取宠物 ID 失败 (code=$codePet)，请检查 QQ 登录状态")
                 return null
             }
-            cachedPetId = fetchedId
+            saveScopedPetId(context, fetchedId)
             petId = fetchedId
-            try {
-                prefs.edit().putString("key_cached_pet_id", fetchedId).commit()
-            } catch (_: Throwable) {}
             sendLog(context, "✅ [鉴权] 锁定宠物 ID: $petId")
         }
         return petId
+    }
+
+    /**
+     * 当服务端返回 135075（跨号 petId 不属于当前登录 UIN，或存在未同步的在途/待结算任务）时自动自愈：
+     * 1. 强制向 0x95e1_0 查询当前真实登录账号的本人 petId；
+     * 2. 若发现 petId 已变更（切换了大小号），立即清空旧号缓存并保存新号 petId；
+     * 3. 同步查询一次真实在途任务状态 (0x975a_1)，如实恢复倒计时或触发结算。
+     */
+    private suspend fun recoverFrom135075(context: Context): String? {
+        val (_, realPetId) = queryOwnPetAwait()
+        if (!realPetId.isNullOrEmpty()) {
+            if (realPetId != cachedPetId) {
+                Log.w(TAG, "🔄 [135075自愈] 发现真实本人 petId ($realPetId) 与缓存 ($cachedPetId) 不一致，立即刷新切换！")
+                clearAccountBoundMemoryCache()
+                saveScopedPetId(context, realPetId)
+                sendLog(context, "✅ [账号校准] 已自动切换到当前登录账号的宠物 ID: $realPetId")
+            }
+            val status = queryStoryStatusAwait(realPetId)
+            if (status.code == 0 && !status.storyId.isNullOrEmpty()) {
+                lastActiveStoryId = status.storyId
+                val rem = status.remaining ?: 0L
+                if (rem > 0L) {
+                    currentTaskEndTimeMillis = System.currentTimeMillis() + rem * 1000L
+                } else if (enableSettle) {
+                    settleStoryAwait(status.storyId, realPetId)
+                    lastActiveStoryId = null
+                    currentTaskEndTimeMillis = 0L
+                }
+            }
+            return realPetId
+        }
+        return cachedPetId
     }
 
     suspend fun queryOwnPetAwait(timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, String?> =

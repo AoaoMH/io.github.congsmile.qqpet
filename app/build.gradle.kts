@@ -12,9 +12,9 @@ android {
       applicationId = "io.github.congsmile.qqpet"
      minSdk = 26
      targetSdk = 34
-       versionCode = 40
+       versionCode = 41
      // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.29)
-       versionName = "1.0.39"
+       versionName = "1.0.40"
  }
 
    buildTypes {
@@ -49,4 +49,5 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.preference:preference-ktx:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    testImplementation("junit:junit:4.13.2")
 }
