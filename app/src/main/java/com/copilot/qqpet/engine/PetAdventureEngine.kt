@@ -22,7 +22,7 @@ import kotlin.coroutines.resume
  * 4. 具备【绝对到期时间戳 + 秒级动态刷新支持】，杜绝界面时间不更新/假死视觉错觉
  * 5. 具备【网络请求 8s 熔断保护与本地缓存保活】，杜绝无超时永久挂起导致的协程死锁
  */
-class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
+class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
 
     companion object {
         private const val TAG = "PetAdventureEngine"
@@ -242,6 +242,13 @@ class PetAdventureEngine(private val bridge: QQPetDirectBridge) {
             Log.i(TAG, "从 SharedPreferences 重新载入配置: 学习=$enableStudy, 打工=$enableWork, 照顾=$enableCare, 冒险=$enableAdventure, 结算=$enableSettle, 学习模式=$prefStudyMode, 打工模式=$prefWorkMode, petId=$cachedPetId, 已学课程=$learnedStudyName($learnedStudySubEvent)")
         } catch (t: Throwable) {
             Log.e(TAG, "加载配置异常: ${t.message}")
+        }
+    }
+
+    fun updateBridge(newBridge: QQPetDirectBridge) {
+        if (newBridge.isReady) {
+            this.bridge = newBridge
+            Log.i(TAG, "已同步更新发包代理实例为就绪状态")
         }
     }
 

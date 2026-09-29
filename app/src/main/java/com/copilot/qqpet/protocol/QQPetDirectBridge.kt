@@ -52,8 +52,61 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
 
     companion object {
         private const val TAG = "QQPetDirectBridge"
-        private const val DELEGATE_CLASS = "com.tencent.mobileqq.qqpet.delegate.l"
+        private const val INTERFACE_CLASS = "com.tencent.ergo.hostdelegate.pb.PetPbDelegate"
         private const val OBSERVER_CLASS = "com.tencent.ergo.hostdelegate.pb.PetPbDelegate\$a"
+        private const val DELEGATE_PKG = "com.tencent.mobileqq.qqpet.delegate."
+
+        @Volatile
+        var resolvedDelegateClass: Class<*>? = null
+            private set
+        @Volatile
+        var resolvedSendMethodName: String = "c"
+            private set
+
+        fun findDelegateClass(classLoader: ClassLoader): Pair<Class<*>?, Method?> {
+            try {
+                val observerCls = Class.forName(OBSERVER_CLASS, true, classLoader)
+                val interfaceCls = Class.forName(INTERFACE_CLASS, true, classLoader)
+
+                // 优先测试最可能的混淆类名，再遍历全部小写字母
+                val candidates = linkedSetOf('m', 'l', 'n', 'k', 'o', 'p', 'j', 'i')
+                for (ch in 'a'..'z') {
+                    candidates.add(ch)
+                }
+
+                for (ch in candidates) {
+                    val className = "$DELEGATE_PKG$ch"
+                    try {
+                        val cls = Class.forName(className, true, classLoader)
+                        if (interfaceCls.isAssignableFrom(cls) && !cls.isInterface) {
+                            var targetMethod: Method? = null
+                            for (m in cls.methods) {
+                                val params = m.parameterTypes
+                                if (params.size == 5 &&
+                                    params[0] == ByteArray::class.java &&
+                                    params[1] == String::class.java &&
+                                    (params[2] == Int::class.javaPrimitiveType || params[2] == Integer::class.java) &&
+                                    (params[3] == Int::class.javaPrimitiveType || params[3] == Integer::class.java) &&
+                                    (observerCls.isAssignableFrom(params[4]) || params[4] == Any::class.java)
+                                ) {
+                                    targetMethod = m
+                                    if (m.name == "c") break
+                                }
+                            }
+                            if (targetMethod != null) {
+                                resolvedDelegateClass = cls
+                                resolvedSendMethodName = targetMethod.name
+                                Log.i(TAG, "🎯 动态自适应命中 QQ 宠物原生发包代理类: $className, 发包方法: ${targetMethod.name}")
+                                return Pair(cls, targetMethod)
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "探测 PetPbDelegate 接口或观察者失败: ${t.message}")
+            }
+            return Pair(null, null)
+        }
     }
 
     private var delegateInstance: Any? = null
@@ -66,22 +119,19 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
 
     init {
         try {
-            val delegateCls = Class.forName(DELEGATE_CLASS, true, classLoader)
             observerClass = Class.forName(OBSERVER_CLASS, true, classLoader)
-            val constructor: Constructor<*> = delegateCls.getDeclaredConstructor().apply {
-                isAccessible = true
+            val (cls, method) = findDelegateClass(classLoader)
+            if (cls != null && method != null) {
+                val constructor: Constructor<*> = cls.getDeclaredConstructor().apply {
+                    isAccessible = true
+                }
+                delegateInstance = constructor.newInstance()
+                sendOidbMethod = method
+                isReady = true
+                Log.d(TAG, "✅ 成功反射挂载 QQ 宠物原生发包代理: ${cls.name}")
+            } else {
+                Log.e(TAG, "❌ 未能动态发现实现 PetPbDelegate 的发包代理类")
             }
-            delegateInstance = constructor.newInstance()
-            sendOidbMethod = delegateCls.getMethod(
-                "c",
-                ByteArray::class.java,
-                String::class.java,
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType,
-                observerClass
-            )
-            isReady = true
-            Log.d(TAG, "成功反射挂载 QQ 宠物原生发包代理 delegate.l")
         } catch (t: Throwable) {
             Log.e(TAG, "反射 QQ 发包代理失败: ${t.message}", t)
         }

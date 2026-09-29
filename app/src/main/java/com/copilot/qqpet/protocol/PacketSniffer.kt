@@ -16,14 +16,18 @@ import de.robv.android.xposed.XposedHelpers
  */
 object PacketSniffer {
     private const val TAG = "QQPetPacketSniffer"
-    private const val DELEGATE_CLASS = "com.tencent.mobileqq.qqpet.delegate.l"
     private var isHooked = false
 
     fun install(classLoader: ClassLoader, context: Context) {
         if (isHooked) return
         try {
-            val delegateCls = XposedHelpers.findClass(DELEGATE_CLASS, classLoader)
-            XposedBridge.hookAllMethods(delegateCls, "c", object : XC_MethodHook() {
+            val (delegateCls, sendMethod) = QQPetDirectBridge.findDelegateClass(classLoader)
+            if (delegateCls == null) {
+                XposedBridge.log("[$TAG] ⚠️ 尚未定位到发包代理类，嗅探器稍后重试")
+                return
+            }
+            val methodName = sendMethod?.name ?: QQPetDirectBridge.resolvedSendMethodName
+            XposedBridge.hookAllMethods(delegateCls, methodName, object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     try {
                         if (HookEntry.globalBridge?.isInternalSending == true) return

@@ -137,14 +137,26 @@ class HookEntry : IXposedHookLoadPackage {
     private fun initEngineAndReceiver(context: Context, classLoader: ClassLoader, from: String) {
         val appContext = context.applicationContext ?: context
 
-        if (globalEngine == null) {
+        if (globalEngine == null || globalBridge?.isReady != true) {
             try {
                 val bridge = QQPetDirectBridge(classLoader)
-                globalBridge = bridge
-                globalEngine = PetAdventureEngine(bridge).apply {
-                    reloadConfig(appContext)
+                if (bridge.isReady) {
+                    globalBridge = bridge
+                    if (globalEngine == null) {
+                        globalEngine = PetAdventureEngine(bridge).apply {
+                            reloadConfig(appContext)
+                        }
+                    } else {
+                        globalEngine?.updateBridge(bridge)
+                    }
+                    XposedBridge.log("[$TAG] 冒险探索发包内核就绪 (来源: $from, 类: ${QQPetDirectBridge.resolvedDelegateClass?.name})")
+                } else if (globalEngine == null) {
+                    globalBridge = bridge
+                    globalEngine = PetAdventureEngine(bridge).apply {
+                        reloadConfig(appContext)
+                    }
+                    XposedBridge.log("[$TAG] 发包内核暂未就绪，等待后续分包触发 (来源: $from)")
                 }
-                XposedBridge.log("[$TAG] 冒险探索发包内核初始化成功 (来源: $from)")
             } catch (t: Throwable) {
                 XposedBridge.log("[$TAG] 初始化发包内核失败: ${t.message}")
             }
