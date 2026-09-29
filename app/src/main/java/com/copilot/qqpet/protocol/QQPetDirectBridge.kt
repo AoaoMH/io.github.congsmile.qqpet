@@ -491,42 +491,31 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
        try {
            val mgrCls = classLoader.loadClass("com.tencent.ergo.user.DisplayValueManager")
            val mgrInst = mgrCls.getField("a").get(null) ?: return null
-           val uin = resolveUin(petId)
-           var displayObj: Any? = null
-           if (uin.isNotEmpty()) {
-               try {
-                   val dMethod = mgrCls.getMethod("d", String::class.java)
-                   displayObj = dMethod.invoke(mgrInst, uin)
-               } catch (_: Throwable) {}
-           }
-           if (displayObj == null) {
-               try {
-                   val cMethod = mgrCls.getMethod("c")
-                   val liveData = cMethod.invoke(mgrInst)
-                   if (liveData != null) {
-                       val getValueMethod = liveData.javaClass.getMethod("getValue")
-                       displayObj = getValueMethod.invoke(liveData)
+           val cMethod = mgrCls.getMethod("c")
+           val liveData = cMethod.invoke(mgrInst) ?: return null
+           val displayObj = liveData.javaClass.getMethod("getValue").invoke(liveData) ?: return null
+
+           var energy = -1f
+           var maxEnergy = 100f
+           var clean = -1f
+           var maxClean = 100f
+           var mood = 0f
+
+           for (m in displayObj.javaClass.methods) {
+               if (m.parameterTypes.isEmpty() && m.returnType.name.endsWith("\$c")) {
+                   val cVal = m.invoke(displayObj)
+                   if (cVal != null) {
+                       val cur = (cVal.javaClass.getMethod("b").invoke(cVal) as? Number)?.toFloat() ?: 0f
+                       val max = (cVal.javaClass.getMethod("d").invoke(cVal) as? Number)?.toFloat() ?: 100f
+                       when (m.name) {
+                           "f" -> { energy = cur; maxEnergy = max }
+                           "c" -> { clean = cur; maxClean = max }
+                           "d" -> { mood = cur }
+                       }
                    }
-               } catch (_: Throwable) {}
+               }
            }
-           if (displayObj != null) {
-               val fMethod = displayObj.javaClass.getMethod("f")
-               val energyObj = fMethod.invoke(displayObj)
-               val energy = (energyObj.javaClass.getMethod("b").invoke(energyObj) as? Number)?.toFloat() ?: -1f
-               val maxEnergy = (energyObj.javaClass.getMethod("d").invoke(energyObj) as? Number)?.toFloat() ?: 100f
-
-               val cObjMethod = displayObj.javaClass.getMethod("c")
-               val cleanObj = cObjMethod.invoke(displayObj)
-               val clean = (cleanObj.javaClass.getMethod("b").invoke(cleanObj) as? Number)?.toFloat() ?: -1f
-               val maxClean = (cleanObj.javaClass.getMethod("d").invoke(cleanObj) as? Number)?.toFloat() ?: 100f
-
-               var mood = 0f
-               try {
-                   val dObjMethod = displayObj.javaClass.getMethod("d")
-                   val moodObj = dObjMethod.invoke(displayObj)
-                   mood = (moodObj.javaClass.getMethod("b").invoke(moodObj) as? Number)?.toFloat() ?: 0f
-               } catch (_: Throwable) {}
-
+           if (energy >= 0f || clean >= 0f) {
                Log.d(TAG, "实时读取到宠物属性: energy=$energy/$maxEnergy, clean=$clean/$maxClean, mood=$mood")
                return PetAttributes(energy, maxEnergy, clean, maxClean, mood)
            }
