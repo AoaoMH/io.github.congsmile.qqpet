@@ -25,9 +25,12 @@ object PreferencesHelper {
     const val KEY_HUMAN_LIKE_SLEEP = "key_human_like_sleep"
     const val KEY_HIDE_QQ_SETTING_ENTRY = "key_hide_qq_setting_entry"
     const val KEY_DEBUG_LOG = "key_debug_log"
-    const val KEY_HIRE_FRIEND_ENABLED = "key_hire_friend_enabled"
-    const val KEY_HIRE_FRIEND_UINS = "key_hire_friend_uins"
-    const val KEY_HIRE_FRIEND_CACHE = "key_hire_friend_cache"
+   const val KEY_HIRE_FRIEND_ENABLED = "key_hire_friend_enabled"
+   const val KEY_HIRE_FRIEND_UINS = "key_hire_friend_uins"
+   const val KEY_HIRE_FRIEND_CACHE = "key_hire_friend_cache"
+   const val KEY_FRIEND_CARE_ENABLED = "key_friend_care_enabled"
+   const val KEY_FRIEND_CARE_ENERGY_THRESHOLD = "key_friend_care_energy_threshold"
+   const val KEY_FRIEND_CARE_CLEAN_THRESHOLD = "key_friend_care_clean_threshold"
 
    fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

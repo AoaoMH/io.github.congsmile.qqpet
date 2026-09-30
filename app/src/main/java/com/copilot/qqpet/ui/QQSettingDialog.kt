@@ -1206,13 +1206,115 @@ object QQSettingDialog {
        }
        careRow.addView(careSwitch)
        dailyCard.addView(careRow)
-       if (!careInitialChecked) {
-           carePanel.visibility = View.GONE
-       }
-       dailyCard.addView(carePanel)
-       dailyCard.addView(createDivider())
+      if (!careInitialChecked) {
+          carePanel.visibility = View.GONE
+      }
+      dailyCard.addView(carePanel)
+      dailyCard.addView(createDivider())
 
-       addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
+      // --- 条目：好友宠物自动喂食与洗澡 (默认关闭，开启后每 10 分钟检测全部好友，支持体力与清洁自选阈值) ---
+      val friendCareRow = LinearLayout(context).apply {
+          orientation = LinearLayout.HORIZONTAL
+          gravity = Gravity.CENTER_VERTICAL
+          setPadding(0, dp(context, 13), 0, dp(context, 13))
+      }
+      val friendCareTextCol = LinearLayout(context).apply {
+          orientation = LinearLayout.VERTICAL
+          layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+              setMargins(0, 0, dp(context, 10), 0)
+          }
+      }
+      val friendCareTitle = TextView(context).apply {
+          text = "好友宠物自动喂食洗澡"
+          textSize = 16f
+          typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+          setTextColor(colors.primaryText)
+      }
+
+      fun getFriendCareSubtitle(energy: Int, clean: Int): String {
+          return "默认照料全部好友 · 体力<$energy 喂食 · 清洁<$clean 洗澡 (每10分钟巡检)"
+      }
+
+      var curFriendEnergyThresh = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
+      var curFriendCleanThresh = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
+
+      val friendCareSubtitle = TextView(context).apply {
+          text = getFriendCareSubtitle(curFriendEnergyThresh, curFriendCleanThresh)
+          textSize = 13f
+          setTextColor(colors.secondaryText)
+          setPadding(0, dp(context, 2), 0, 0)
+      }
+      friendCareTextCol.addView(friendCareTitle)
+      friendCareTextCol.addView(friendCareSubtitle)
+      friendCareRow.addView(friendCareTextCol)
+
+      val friendCarePanel = LinearLayout(context).apply {
+          orientation = LinearLayout.VERTICAL
+          setPadding(0, 0, 0, dp(context, 12))
+      }
+
+      val friendEnergyLabel = TextView(context).apply {
+          text = "好友体力喂食阈值 (低于设定值自动帮好友喂食)"
+          textSize = 12f
+          setTextColor(colors.secondaryText)
+          setPadding(0, dp(context, 4), 0, dp(context, 4))
+      }
+      val friendEnergyInitialIndex = thresholdValues.indexOf(curFriendEnergyThresh).let { if (it >= 0) it else 1 }
+      val friendEnergySeg = AppleSegmentedControl(
+          context,
+          thresholdLabels,
+          friendEnergyInitialIndex,
+          isNight = colors.isNight
+      ) { sel ->
+          val v = thresholdValues.getOrElse(sel) { 60 }
+          curFriendEnergyThresh = v
+          prefs.edit().putInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, v).commit()
+          friendCareSubtitle.text = getFriendCareSubtitle(curFriendEnergyThresh, curFriendCleanThresh)
+          syncConfig(prefs, engine, context)
+      }
+      friendCarePanel.addView(friendEnergyLabel)
+      friendCarePanel.addView(friendEnergySeg)
+
+      val friendCleanLabel = TextView(context).apply {
+          text = "好友清洁洗澡阈值 (低于设定值自动帮好友搓澡)"
+          textSize = 12f
+          setTextColor(colors.secondaryText)
+          setPadding(0, dp(context, 8), 0, dp(context, 4))
+      }
+      val friendCleanInitialIndex = thresholdValues.indexOf(curFriendCleanThresh).let { if (it >= 0) it else 1 }
+      val friendCleanSeg = AppleSegmentedControl(
+          context,
+          thresholdLabels,
+          friendCleanInitialIndex,
+          isNight = colors.isNight
+      ) { sel ->
+          val v = thresholdValues.getOrElse(sel) { 60 }
+          curFriendCleanThresh = v
+          prefs.edit().putInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, v).commit()
+          friendCareSubtitle.text = getFriendCareSubtitle(curFriendEnergyThresh, curFriendCleanThresh)
+          syncConfig(prefs, engine, context)
+      }
+      friendCarePanel.addView(friendCleanLabel)
+      friendCarePanel.addView(friendCleanSeg)
+
+      val friendCareInitialChecked = prefs.getBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, false)
+      val friendCareSwitch = AppleSwitchView(context, colors.isNight).apply {
+          setCheckedImmediately(friendCareInitialChecked)
+          onCheckedChangeListener = { isChecked ->
+              prefs.edit().putBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, isChecked).commit()
+              animateExpandCollapse(friendCarePanel, isChecked)
+              syncConfig(prefs, engine, context)
+          }
+      }
+      friendCareRow.addView(friendCareSwitch)
+      dailyCard.addView(friendCareRow)
+      if (!friendCareInitialChecked) {
+          friendCarePanel.visibility = View.GONE
+      }
+      dailyCard.addView(friendCarePanel)
+      dailyCard.addView(createDivider())
+
+      addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
        addSimpleToggleRow(dailyCard, "自动领取好友福袋", "自动扫描好友小窝并拆取掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
        addSimpleToggleRow(dailyCard, "疲惫时自动转冒险", "检测到疲惫收益减少时，取消打工和学习转去冒险直至恢复", PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true, false)
        addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
@@ -1369,6 +1471,20 @@ object QQSettingDialog {
             isLast = false
         ) {
             triggerAction(context, engine, "coinbag")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
+        addActionItem(
+            card = actionCard,
+            title = "立即帮全部好友喂食与洗澡",
+            confirmTitle = "立即帮好友宠物喂食洗澡？",
+            confirmMessage = "将立即检测全部养宠好友的实时体力与清洁度，低于设定阈值时自动帮好友喂食与搓澡。",
+            confirmBtnText = "立即照料好友",
+            colorHex = "#007AFF",
+            isLast = false
+        ) {
+            triggerAction(context, engine, "friend_care")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
@@ -2204,15 +2320,18 @@ object QQSettingDialog {
        val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
        val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
        val hideQQSetting = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
-       val debugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
-       val hireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
-       val hireUinsCsv = PetAdventureEngine.loadSavedHireFriendUins(context).joinToString(",")
+      val debugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
+      val hireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
+      val hireUinsCsv = PetAdventureEngine.loadSavedHireFriendUins(context).joinToString(",")
+      val friendCareEnabled = prefs.getBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, false)
+      val friendCareEnergy = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
+      val friendCareClean = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
 
-       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog, hireFriend, hireUinsCsv)
-       if (engine != null && engine !== HookEntry.globalEngine) {
-           engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog, hireFriend, hireUinsCsv)
-       }
-       val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
+      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
+      if (engine != null && engine !== HookEntry.globalEngine) {
+          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
+      }
+      val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
            putExtra("extra_study", study)
            putExtra("extra_work", work)
@@ -2233,12 +2352,15 @@ object QQSettingDialog {
            putExtra("extra_care_clean_threshold", careClean)
            putExtra("extra_human_like_sleep", humanLikeSleep)
            putExtra("extra_hide_qq_setting_entry", hideQQSetting)
-           putExtra("extra_debug_log", debugLog)
-           putExtra("extra_hire_friend_enabled", hireFriend)
-           putExtra("extra_hire_friend_uins", hireUinsCsv)
-       }
-       context.sendBroadcast(intent)
-    }
+          putExtra("extra_debug_log", debugLog)
+          putExtra("extra_hire_friend_enabled", hireFriend)
+          putExtra("extra_hire_friend_uins", hireUinsCsv)
+          putExtra("extra_friend_care_enabled", friendCareEnabled)
+          putExtra("extra_friend_care_energy_threshold", friendCareEnergy)
+          putExtra("extra_friend_care_clean_threshold", friendCareClean)
+      }
+      context.sendBroadcast(intent)
+   }
 
     private fun dp(context: Context, value: Int): Int {
         return TypedValue.applyDimension(

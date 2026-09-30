@@ -79,10 +79,13 @@ class MainActivity : AppCompatActivity() {
         binding.btnTestAdventure.setOnClickListener {
             sendActionToQQ("adventure", "森林探险实测")
         }
-        binding.btnTestSettle.setOnClickListener {
-            sendActionToQQ("settle", "收益结算实测")
-        }
-        binding.btnClearLogs.setOnClickListener {
+       binding.btnTestSettle.setOnClickListener {
+           sendActionToQQ("settle", "收益结算实测")
+       }
+       binding.btnTestFriendCare.setOnClickListener {
+           sendActionToQQ("friend_care", "帮全部好友喂食与洗澡")
+       }
+       binding.btnClearLogs.setOnClickListener {
             binding.tvEngineLogs.text = "日志已清空，等待下次测试..."
         }
     }
@@ -132,9 +135,10 @@ class MainActivity : AppCompatActivity() {
 
         // 读取初始值（默认全开启）
         binding.switchStudy.isChecked = prefs.getBoolean(PreferencesHelper.KEY_STUDY, true)
-        binding.switchWork.isChecked = prefs.getBoolean(PreferencesHelper.KEY_WORK, true)
-        binding.switchCare.isChecked = prefs.getBoolean(PreferencesHelper.KEY_CARE, true)
-        binding.switchAdventure.isChecked = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, false)
+       binding.switchWork.isChecked = prefs.getBoolean(PreferencesHelper.KEY_WORK, true)
+       binding.switchCare.isChecked = prefs.getBoolean(PreferencesHelper.KEY_CARE, true)
+       binding.switchFriendCare.isChecked = prefs.getBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, false)
+       binding.switchAdventure.isChecked = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, false)
         binding.switchSettle.isChecked = prefs.getBoolean(PreferencesHelper.KEY_SETTLE, true)
         binding.switchHumanLikeSleep.isChecked = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
         binding.switchHideQQSetting.isChecked = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
@@ -149,11 +153,15 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putBoolean(PreferencesHelper.KEY_WORK, isChecked).apply()
             syncConfigToQQ()
         }
-        binding.switchCare.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit().putBoolean(PreferencesHelper.KEY_CARE, isChecked).apply()
-            syncConfigToQQ()
-        }
-        binding.switchAdventure.setOnCheckedChangeListener { _, isChecked ->
+       binding.switchCare.setOnCheckedChangeListener { _, isChecked ->
+           prefs.edit().putBoolean(PreferencesHelper.KEY_CARE, isChecked).apply()
+           syncConfigToQQ()
+       }
+       binding.switchFriendCare.setOnCheckedChangeListener { _, isChecked ->
+           prefs.edit().putBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, isChecked).apply()
+           syncConfigToQQ()
+       }
+       binding.switchAdventure.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean(PreferencesHelper.KEY_ADVENTURE, isChecked).apply()
             syncConfigToQQ()
         }
@@ -177,10 +185,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun syncConfigToQQ() {
        val prefs = PreferencesHelper.getPrefs(this)
-       val study = prefs.getBoolean(PreferencesHelper.KEY_STUDY, true)
-       val work = prefs.getBoolean(PreferencesHelper.KEY_WORK, true)
-       val care = prefs.getBoolean(PreferencesHelper.KEY_CARE, true)
-       val adv = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, false)
+      val study = prefs.getBoolean(PreferencesHelper.KEY_STUDY, true)
+      val work = prefs.getBoolean(PreferencesHelper.KEY_WORK, true)
+      val care = prefs.getBoolean(PreferencesHelper.KEY_CARE, true)
+      val friendCare = prefs.getBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, false)
+      val friendCareEnergy = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
+      val friendCareClean = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
+      val adv = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, false)
        val settle = prefs.getBoolean(PreferencesHelper.KEY_SETTLE, true)
        val likeBack = prefs.getBoolean(PreferencesHelper.KEY_LIKE_BACK, true)
        val claimCoinBag = prefs.getBoolean(PreferencesHelper.KEY_CLAIM_COINBAG, true)
@@ -192,10 +203,13 @@ class MainActivity : AppCompatActivity() {
        try {
            val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
                setPackage(HookEntry.TARGET_PACKAGE)
-               putExtra("extra_study", study)
-               putExtra("extra_work", work)
-               putExtra("extra_care", care)
-               putExtra("extra_adventure", adv)
+              putExtra("extra_study", study)
+              putExtra("extra_work", work)
+              putExtra("extra_care", care)
+              putExtra("extra_friend_care_enabled", friendCare)
+              putExtra("extra_friend_care_energy_threshold", friendCareEnergy)
+              putExtra("extra_friend_care_clean_threshold", friendCareClean)
+              putExtra("extra_adventure", adv)
                putExtra("extra_settle", settle)
                putExtra("extra_like_back", likeBack)
                putExtra("extra_claim_coinbag", claimCoinBag)
