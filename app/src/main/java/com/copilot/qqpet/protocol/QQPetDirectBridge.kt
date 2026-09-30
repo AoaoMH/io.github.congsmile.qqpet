@@ -105,6 +105,20 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
        val errorMsg: String? = null
    )
 
+   data class HireableFriend(
+       val uin: Long,
+       val friendNick: String,
+       val petNick: String,
+       val petId: String,
+       val power: Long = 0L,
+       val intel: Long = 0L,
+       val charm: Long = 0L,
+       val isIdle: Boolean = true,
+       val remainingSec: Long = 0L
+   ) {
+       val totalAttr: Long get() = power + intel + charm
+   }
+
    companion object {
        private const val TAG = "QQPetDirectBridge"
         private const val INTERFACE_CLASS = "com.tencent.ergo.hostdelegate.pb.PetPbDelegate"
@@ -871,7 +885,7 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         subEventType: Long = 6701L,
         callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
     ) {
-        startSceneTask(6700L, petId, adventureName, subEventType, callback)
+        startSceneTask(6700L, petId, adventureName, subEventType, "", callback)
     }
 
     /**
@@ -882,9 +896,10 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         jobName: String = "小镇兼职",
         page: Long = 6400L,
         subEventType: Long = 6401L,
+        hiredPetId: String = "",
         callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
     ) {
-        startSceneTask(page, petId, jobName, subEventType, callback)
+        startSceneTask(page, petId, jobName, subEventType, hiredPetId, callback)
     }
 
     /**
@@ -897,7 +912,7 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         subEventType: Long = 6101L,
         callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
     ) {
-        startSceneTask(page, petId, courseName, subEventType, callback)
+        startSceneTask(page, petId, courseName, subEventType, "", callback)
     }
 
     private fun startSceneTask(
@@ -905,12 +920,13 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         petId: String,
         taskName: String,
         subEventType: Long,
+        hiredPetId: String = "",
         callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
     ) {
         val body = ProtoWire.message()
             .writeVarint(1, page)
             .writeString(2, petId)
-            .writeString(3, "")
+            .writeString(3, hiredPetId)
             .writeString(6, taskName)
             .writeVarint(7, subEventType)
             .writeVarint(100, 2L)
@@ -1240,6 +1256,71 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
             } else {
                 Log.w(TAG, "fetchFriendCoinBags 失败: code=$code, err=$errorMsg")
                 callback(code, emptyList(), 0, false, "", errorMsg)
+            }
+        }
+    }
+
+    /**
+     * 分页拉取养宠好友列表，用于打工雇佣好友选择与匹配（官方 0x985d_0 / 39005 协议）
+     */
+    fun fetchPetFriendsPage(
+        cookie: String = "",
+        callback: (
+            code: Int,
+            friends: List<HireableFriend>,
+            hasMore: Boolean,
+            nextCookie: String,
+            errorMsg: String?
+        ) -> Unit
+    ) {
+        val body = ProtoWire.message()
+            .writeString(1, cookie)
+            .writeVarint(2, 1L)
+            .writeVarint(3, 0L)
+            .toByteArray()
+
+        val currentOwnUin = getCurrentRuntimeUin()
+        sendOidb("OidbSvcTrpcTcp.0x985d_0", 39005, 0, body) { code, data, errorMsg ->
+            if (code == 0 && data != null) {
+                val list = mutableListOf<HireableFriend>()
+                val friendNodes = ProtoWire.allBytes(data, 1)
+                for (nodeBytes in friendNodes) {
+                    val userBytes = ProtoWire.firstBytes(nodeBytes, 2)
+                    val friendUin = ProtoWire.firstVarint(userBytes, 1) ?: 0L
+                    if (friendUin <= 0L || (currentOwnUin.isNotEmpty() && friendUin.toString() == currentOwnUin)) {
+                        continue
+                    }
+                    val friendNick = ProtoWire.firstString(userBytes, 2)?.trim().orEmpty()
+
+                    val profileBytes = ProtoWire.firstBytes(nodeBytes, 1)
+                    val petNick = ProtoWire.firstString(profileBytes, 1)?.trim().orEmpty()
+                    var friendPetId = ProtoWire.firstString(profileBytes, 8)?.trim()
+                        ?: ProtoWire.firstString(profileBytes, 101)?.trim()
+                        ?: ""
+                    if (friendPetId.isEmpty() && profileBytes != null) {
+                        val candidates = ProtoWire.extractAllStrings(profileBytes)
+                        friendPetId = candidates.firstOrNull { str ->
+                            AccountSessionGuard.extractOwnerUinFromPetId(str) == friendUin.toString()
+                        }.orEmpty()
+                    }
+                    if (friendPetId.isNotEmpty()) {
+                        list.add(
+                            HireableFriend(
+                                uin = friendUin,
+                                friendNick = friendNick,
+                                petNick = petNick,
+                                petId = friendPetId
+                            )
+                        )
+                    }
+                }
+                val nextCookie = ProtoWire.firstString(data, 2) ?: ""
+                val hasMore = (ProtoWire.firstVarint(data, 3) ?: 0L) != 0L
+                Log.i(TAG, "fetchPetFriendsPage 回包: 解析到 ${list.size} 位可雇佣好友, hasMore=$hasMore")
+                callback(0, list, hasMore, nextCookie, null)
+            } else {
+                Log.w(TAG, "fetchPetFriendsPage 失败: code=$code, err=$errorMsg")
+                callback(code, emptyList(), false, "", errorMsg)
             }
         }
     }

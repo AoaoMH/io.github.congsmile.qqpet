@@ -225,16 +225,18 @@ class HookEntry : IXposedHookLoadPackage {
                            val workDuration = if (intent.hasExtra("extra_work_duration")) intent.getIntExtra("extra_work_duration", 0) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_WORK_DURATION, 0)
                            val careEnergyThreshold = if (intent.hasExtra("extra_care_energy_threshold")) intent.getIntExtra("extra_care_energy_threshold", 60) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
                            val careCleanThreshold = if (intent.hasExtra("extra_care_clean_threshold")) intent.getIntExtra("extra_care_clean_threshold", 60) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
-                           val humanLikeSleep = if (intent.hasExtra("extra_human_like_sleep")) intent.getBooleanExtra("extra_human_like_sleep", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
-                           val hideSetting = if (intent.hasExtra("extra_hide_qq_setting_entry")) intent.getBooleanExtra("extra_hide_qq_setting_entry", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
-                           val debugLog = if (intent.hasExtra("extra_debug_log")) intent.getBooleanExtra("extra_debug_log", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_DEBUG_LOG, false)
+                          val humanLikeSleep = if (intent.hasExtra("extra_human_like_sleep")) intent.getBooleanExtra("extra_human_like_sleep", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+                          val hideSetting = if (intent.hasExtra("extra_hide_qq_setting_entry")) intent.getBooleanExtra("extra_hide_qq_setting_entry", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+                          val debugLog = if (intent.hasExtra("extra_debug_log")) intent.getBooleanExtra("extra_debug_log", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_DEBUG_LOG, false)
+                          val hireFriend = if (intent.hasExtra("extra_hire_friend_enabled")) intent.getBooleanExtra("extra_hire_friend_enabled", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
+                          val hireUinsCsv = if (intent.hasExtra("extra_hire_friend_uins")) (intent.getStringExtra("extra_hire_friend_uins") ?: "") else (prefs.getString(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRE_FRIEND_UINS, "") ?: "")
 
-                           HookLog.isDebugEnabled = debugLog
+                          HookLog.isDebugEnabled = debugLog
 
-                           globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, hideSetting, debugLog)
-                           try {
-                               val editor = prefs.edit()
-                               if (intent.hasExtra("extra_study")) editor.putBoolean("key_study", study)
+                          globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, hideSetting, debugLog, hireFriend, hireUinsCsv)
+                          try {
+                              val editor = prefs.edit()
+                              if (intent.hasExtra("extra_study")) editor.putBoolean("key_study", study)
                                if (intent.hasExtra("extra_work")) editor.putBoolean("key_work", work)
                                if (intent.hasExtra("extra_care")) editor.putBoolean("key_care", care)
                                if (intent.hasExtra("extra_adventure")) editor.putBoolean("key_adventure", adv)
@@ -251,11 +253,13 @@ class HookEntry : IXposedHookLoadPackage {
                                if (intent.hasExtra("extra_work_duration")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_WORK_DURATION, workDuration)
                                if (intent.hasExtra("extra_care_energy_threshold")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, careEnergyThreshold)
                                if (intent.hasExtra("extra_care_clean_threshold")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, careCleanThreshold)
-                               if (intent.hasExtra("extra_human_like_sleep")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, humanLikeSleep)
-                               if (intent.hasExtra("extra_hide_qq_setting_entry")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, hideSetting)
-                               if (intent.hasExtra("extra_debug_log")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_DEBUG_LOG, debugLog)
-                               editor.commit()
-                           } catch (_: Throwable) {}
+                              if (intent.hasExtra("extra_human_like_sleep")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, humanLikeSleep)
+                              if (intent.hasExtra("extra_hide_qq_setting_entry")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, hideSetting)
+                              if (intent.hasExtra("extra_debug_log")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_DEBUG_LOG, debugLog)
+                              if (intent.hasExtra("extra_hire_friend_enabled")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, hireFriend)
+                              if (intent.hasExtra("extra_hire_friend_uins")) editor.putString(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRE_FRIEND_UINS, hireUinsCsv)
+                              editor.commit()
+                          } catch (_: Throwable) {}
                           HookLog.log(TAG, "跨进程配置更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 隐身=$hideSetting, 调试日志=$debugLog")
                            globalEngine?.sendLog(ctx, "⚙️ [配置已同步] 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 阶段=$schoolStage, 工种=$workType")
                        }

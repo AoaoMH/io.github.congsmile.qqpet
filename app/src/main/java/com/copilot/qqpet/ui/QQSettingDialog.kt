@@ -17,6 +17,9 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -26,6 +29,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -935,6 +939,103 @@ object QQSettingDialog {
         workPanel.addView(workDurLabel)
         workPanel.addView(workDurSeg)
 
+        // --- 打工雇佣好友设置区块 (勾选白名单 + 名字/QQ号搜索 + 空闲最高收益优选) ---
+        workPanel.addView(View(context).apply {
+            setBackgroundColor(colors.dividerColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                setMargins(0, dp(context, 12), 0, dp(context, 4))
+            }
+        })
+
+        val hireToggleRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(context, 8), 0, dp(context, 8))
+        }
+        val hireToggleTextCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+                setMargins(0, 0, dp(context, 10), 0)
+            }
+        }
+        val hireToggleTitle = TextView(context).apply {
+            text = "打工自动雇佣好友"
+            textSize = 14.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.primaryText)
+        }
+        val hireToggleDesc = TextView(context).apply {
+            text = "仅在已勾选的好友中，默认雇佣空闲且收益最高的好友"
+            textSize = 12f
+            setTextColor(colors.secondaryText)
+            setPadding(0, dp(context, 2), 0, 0)
+        }
+        hireToggleTextCol.addView(hireToggleTitle)
+        hireToggleTextCol.addView(hireToggleDesc)
+        hireToggleRow.addView(hireToggleTextCol)
+
+        val hireInitialChecked = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
+        val hireSwitch = AppleSwitchView(context, colors.isNight).apply {
+            setCheckedImmediately(hireInitialChecked)
+            onCheckedChangeListener = { isChecked ->
+                prefs.edit().putBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, isChecked).commit()
+                syncConfig(prefs, engine, context)
+            }
+        }
+        hireToggleRow.addView(hireSwitch)
+        workPanel.addView(hireToggleRow)
+
+        val hireWhitelistSummaryTv = TextView(context).apply {
+            text = formatHireWhitelistSummary(context)
+            textSize = 12f
+            setTextColor(colors.secondaryText)
+            setPadding(0, dp(context, 2), 0, 0)
+        }
+        val hireWhitelistRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(if (colors.isNight) Color.parseColor("#2C2C2E") else Color.parseColor("#F2F2F7"))
+                cornerRadius = dp(context, 9).toFloat()
+            }
+            setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dp(context, 4), 0, dp(context, 2))
+            }
+            applyTouchSpringEffect(this)
+            setOnClickListener {
+                showHireFriendWhitelistDialog(context, colors, prefs, engine) {
+                    hireWhitelistSummaryTv.text = formatHireWhitelistSummary(context)
+                }
+            }
+        }
+        val hireWhitelistCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+                setMargins(0, 0, dp(context, 8), 0)
+            }
+        }
+        val hireWhitelistTitle = TextView(context).apply {
+            text = "选择雇佣好友白名单 (支持名字/QQ号搜索)"
+            textSize = 13.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.actionBlueText)
+        }
+        hireWhitelistCol.addView(hireWhitelistTitle)
+        hireWhitelistCol.addView(hireWhitelistSummaryTv)
+        val hireWhitelistAction = TextView(context).apply {
+            text = "勾选 ›"
+            textSize = 13.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.actionBlueText)
+        }
+        hireWhitelistRow.addView(hireWhitelistCol)
+        hireWhitelistRow.addView(hireWhitelistAction)
+        workPanel.addView(hireWhitelistRow)
+
         val workInitialChecked = prefs.getBoolean("key_work", true)
         val workSwitch = AppleSwitchView(context, colors.isNight).apply {
             setCheckedImmediately(workInitialChecked)
@@ -1522,6 +1623,12 @@ object QQSettingDialog {
                     mainHandler.post {
                         applyUnlockStates(preloaded)
                     }
+                    if (PetAdventureEngine.loadCachedHireableFriends(context).isEmpty()) {
+                        activeEngine.fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
+                        mainHandler.post {
+                            hireWhitelistSummaryTv.text = formatHireWhitelistSummary(context)
+                        }
+                    }
                 }
             }
         }
@@ -1621,6 +1728,394 @@ object QQSettingDialog {
         }
     }
 
+    private fun formatHireWhitelistSummary(context: Context): String {
+        val selectedUins = PetAdventureEngine.loadSavedHireFriendUins(context)
+        if (selectedUins.isEmpty()) {
+            return "当前未勾选好友 (未选择的好友不会雇佣 · 点击搜索勾选)"
+        }
+        val cachedFriends = PetAdventureEngine.loadCachedHireableFriends(context)
+        val matchedNames = selectedUins.mapNotNull { uin ->
+            val f = cachedFriends.find { it.uin == uin }
+            if (f != null && f.friendNick.isNotBlank()) f.friendNick else uin.toString()
+        }
+        val preview = matchedNames.take(3).joinToString("、")
+        val more = if (matchedNames.size > 3) " 等" else ""
+        return "已勾选 ${selectedUins.size} 位好友 ($preview$more) · 优先空闲最高收益"
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun showHireFriendWhitelistDialog(
+        context: Context,
+        colors: ThemeColors,
+        prefs: android.content.SharedPreferences,
+        engine: PetAdventureEngine?,
+        onUpdated: () -> Unit
+    ) {
+        val dialog = Dialog(context)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        val selectedUins = LinkedHashSet<Long>(PetAdventureEngine.loadSavedHireFriendUins(context))
+        val allFriends = mutableListOf<QQPetDirectBridge.HireableFriend>().apply {
+            addAll(PetAdventureEngine.loadCachedHireableFriends(context))
+        }
+        var searchQuery = ""
+        var isRefreshing = false
+
+        val rootCard = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(if (colors.isNight) Color.parseColor("#1C1C1E") else Color.WHITE)
+                cornerRadius = dp(context, 16).toFloat()
+                if (colors.isNight) {
+                    setStroke(1, colors.cardBorder)
+                }
+            }
+            setPadding(dp(context, 16), dp(context, 18), dp(context, 16), dp(context, 14))
+        }
+
+        val titleTv = TextView(context).apply {
+            text = "选择雇佣好友白名单"
+            textSize = 17f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.primaryText)
+        }
+        val subtitleTv = TextView(context).apply {
+            text = "未勾选的好友不会雇佣；已勾选好友中默认优先雇佣空闲且总资质最高者。"
+            textSize = 12.5f
+            setTextColor(colors.secondaryText)
+            setPadding(0, dp(context, 4), 0, dp(context, 12))
+        }
+        rootCard.addView(titleTv)
+        rootCard.addView(subtitleTv)
+
+        // 搜索栏 (支持按好友名字、宠物名字或 QQ 号实时过滤)
+        val searchBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(if (colors.isNight) Color.parseColor("#2C2C2E") else Color.parseColor("#F2F2F7"))
+                cornerRadius = dp(context, 10).toFloat()
+            }
+            setPadding(dp(context, 12), dp(context, 6), dp(context, 10), dp(context, 6))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, dp(context, 10))
+            }
+        }
+
+        val clearSearchBtn = TextView(context).apply {
+            text = "清空"
+            textSize = 12.5f
+            setTextColor(colors.actionBlueText)
+            setPadding(dp(context, 8), dp(context, 4), dp(context, 4), dp(context, 4))
+            visibility = View.GONE
+        }
+
+        val searchInput = EditText(context).apply {
+            hint = "输入好友名字、宠物名或 QQ 号搜索..."
+            textSize = 13.5f
+            setTextColor(colors.primaryText)
+            setHintTextColor(colors.secondaryText)
+            background = null
+            isSingleLine = true
+            inputType = InputType.TYPE_CLASS_TEXT
+            setPadding(0, dp(context, 4), 0, dp(context, 4))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        clearSearchBtn.setOnClickListener {
+            searchInput.setText("")
+        }
+        searchBar.addView(searchInput)
+        searchBar.addView(clearSearchBtn)
+        rootCard.addView(searchBar)
+
+        // 状态与操作行
+        val statusRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 2), 0, dp(context, 2), dp(context, 8))
+        }
+        val statusInfoTv = TextView(context).apply {
+            text = "已勾选 ${selectedUins.size} 人 · 共 ${allFriends.size} 位养宠好友"
+            textSize = 12f
+            setTextColor(colors.secondaryText)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        val clearSelectedBtn = TextView(context).apply {
+            text = "全不选"
+            textSize = 12.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.actionRedText)
+            setPadding(dp(context, 8), dp(context, 4), dp(context, 8), dp(context, 4))
+        }
+        val refreshBtn = TextView(context).apply {
+            text = "刷新好友与资质"
+            textSize = 12.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.actionBlueText)
+            setPadding(dp(context, 8), dp(context, 4), dp(context, 2), dp(context, 4))
+        }
+        statusRow.addView(statusInfoTv)
+        statusRow.addView(clearSelectedBtn)
+        statusRow.addView(refreshBtn)
+        rootCard.addView(statusRow)
+
+        rootCard.addView(View(context).apply {
+            setBackgroundColor(colors.dividerColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+        })
+
+        // 好友滚动列表容器
+        val listContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val screenHeight = context.resources.displayMetrics.heightPixels
+        val listScrollView = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (screenHeight * 0.44f).toInt()
+            )
+            addView(listContainer)
+        }
+        rootCard.addView(listScrollView)
+
+        fun persistSelection() {
+            PetAdventureEngine.saveHireFriendUins(context, selectedUins)
+            syncConfig(prefs, engine, context)
+            onUpdated()
+        }
+
+        fun renderList() {
+            listContainer.removeAllViews()
+            val q = searchQuery.trim()
+            val filtered = if (q.isEmpty()) {
+                allFriends.toList()
+            } else {
+                allFriends.filter { f ->
+                    f.friendNick.contains(q, ignoreCase = true) ||
+                        f.petNick.contains(q, ignoreCase = true) ||
+                        f.uin.toString().contains(q)
+                }
+            }
+
+            statusInfoTv.text = if (isRefreshing) {
+                "正在同步好友列表与实测资质..."
+            } else if (q.isNotEmpty()) {
+                "搜索到 ${filtered.size} 人 · 已勾选 ${selectedUins.size} 人"
+            } else {
+                "已勾选 ${selectedUins.size} 人 · 共 ${allFriends.size} 位养宠好友"
+            }
+
+            if (filtered.isEmpty()) {
+                val emptyTv = TextView(context).apply {
+                    text = if (isRefreshing) {
+                        "正在从 QQ 宠物服务端拉取养宠好友列表，请稍候..."
+                    } else if (q.isNotEmpty()) {
+                        "未找到匹配「$q」的养宠好友，可点击右上角「刷新好友与资质」重试"
+                    } else {
+                        "暂未加载到养宠好友数据，请点击右上角「刷新好友与资质」"
+                    }
+                    textSize = 13f
+                    setTextColor(colors.secondaryText)
+                    gravity = Gravity.CENTER
+                    setPadding(dp(context, 16), dp(context, 36), dp(context, 16), dp(context, 36))
+                }
+                listContainer.addView(emptyTv)
+                return
+            }
+
+            filtered.forEachIndexed { idx, friend ->
+                val isChecked = selectedUins.contains(friend.uin)
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(context, 4), dp(context, 11), dp(context, 4), dp(context, 11))
+                }
+
+                val textCol = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+                        setMargins(0, 0, dp(context, 10), 0)
+                    }
+                }
+
+                val displayName = friend.friendNick.ifEmpty { "QQ好友" }
+                val nameTv = TextView(context).apply {
+                    text = "$displayName (${friend.uin})"
+                    textSize = 14.5f
+                    typeface = Typeface.create("sans-serif-medium", if (isChecked) Typeface.BOLD else Typeface.NORMAL)
+                    setTextColor(colors.primaryText)
+                }
+
+                val petPart = "小宠: ${friend.petNick.ifEmpty { "未知" }}"
+                val attrPart = if (friend.totalAttr > 0L) {
+                    " · 总资质 ${friend.totalAttr} (力${friend.power}/智${friend.intel}/魅${friend.charm})"
+                } else {
+                    " · 勾选或刷新探测资质"
+                }
+                val idlePart = if (friend.totalAttr > 0L || !friend.isIdle) {
+                    if (friend.isIdle) " · 空闲" else " · 忙碌中"
+                } else ""
+                val detailTv = TextView(context).apply {
+                    text = "$petPart$attrPart$idlePart"
+                    textSize = 12f
+                    setTextColor(colors.secondaryText)
+                    setPadding(0, dp(context, 2), 0, 0)
+                }
+                textCol.addView(nameTv)
+                textCol.addView(detailTv)
+
+                val checkBadge = TextView(context).apply {
+                    text = if (isChecked) "✓ 已选" else "未选"
+                    textSize = 12f
+                    typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                    setTextColor(
+                        if (isChecked) Color.WHITE
+                        else colors.secondaryText
+                    )
+                    setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5))
+                    background = GradientDrawable().apply {
+                        setColor(
+                            if (isChecked) {
+                                if (colors.isNight) Color.parseColor("#30D158") else Color.parseColor("#34C759")
+                            } else {
+                                if (colors.isNight) Color.parseColor("#2C2C2E") else Color.parseColor("#EBEBED")
+                            }
+                        )
+                        cornerRadius = dp(context, 8).toFloat()
+                    }
+                }
+
+                row.addView(textCol)
+                row.addView(checkBadge)
+                row.setOnClickListener {
+                    val nowSelected = if (selectedUins.contains(friend.uin)) {
+                        selectedUins.remove(friend.uin)
+                        false
+                    } else {
+                        selectedUins.add(friend.uin)
+                        true
+                    }
+                    persistSelection()
+                    renderList()
+
+                    if (nowSelected && friend.totalAttr <= 0L) {
+                        val active = engine ?: HookEntry.globalEngine
+                        if (active != null) {
+                            CoroutineScope(Dispatchers.IO).launch {
+                                val enriched = active.enrichFriendDetailsAwait(friend)
+                                val i = allFriends.indexOfFirst { it.uin == friend.uin }
+                                if (i >= 0) {
+                                    allFriends[i] = enriched
+                                    PetAdventureEngine.saveCachedHireableFriends(context, allFriends)
+                                }
+                                mainHandler.post {
+                                    renderList()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                listContainer.addView(row)
+                if (idx < filtered.size - 1) {
+                    listContainer.addView(View(context).apply {
+                        setBackgroundColor(colors.dividerColor)
+                        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+                    })
+                }
+            }
+        }
+
+        fun triggerRefreshFriends() {
+            val active = engine ?: HookEntry.globalEngine
+            if (active == null) {
+                Toast.makeText(context, "引擎尚未就绪，请稍候再试", Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (isRefreshing) return
+            isRefreshing = true
+            renderList()
+            CoroutineScope(Dispatchers.IO).launch {
+                val fetched = active.fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = true)
+                mainHandler.post {
+                    isRefreshing = false
+                    allFriends.clear()
+                    allFriends.addAll(fetched)
+                    renderList()
+                    onUpdated()
+                }
+            }
+        }
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                searchQuery = s?.toString().orEmpty()
+                clearSearchBtn.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
+                renderList()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        clearSelectedBtn.setOnClickListener {
+            if (selectedUins.isNotEmpty()) {
+                selectedUins.clear()
+                persistSelection()
+                renderList()
+            }
+        }
+
+        refreshBtn.setOnClickListener {
+            triggerRefreshFriends()
+        }
+
+        rootCard.addView(View(context).apply {
+            setBackgroundColor(colors.dividerColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                setMargins(0, dp(context, 6), 0, dp(context, 10))
+            }
+        })
+
+        val doneBtn = TextView(context).apply {
+            text = "完成并保存"
+            textSize = 16f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(context, 11), 0, dp(context, 11))
+            background = GradientDrawable().apply {
+                setColor(colors.actionBlueText)
+                cornerRadius = dp(context, 10).toFloat()
+            }
+            applyTouchSpringEffect(this)
+            setOnClickListener {
+                persistSelection()
+                dialog.dismiss()
+            }
+        }
+        rootCard.addView(doneBtn)
+
+        renderList()
+        if (allFriends.isEmpty()) {
+            triggerRefreshFriends()
+        }
+
+        dialog.setContentView(rootCard)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            val width = (context.resources.displayMetrics.widthPixels * 0.90f).toInt()
+            setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setDimAmount(0.45f)
+            clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+            setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+        dialog.show()
+    }
+
     private fun getSchoolStageDesc(stage: Int): String {
         return when (stage) {
             1 -> "就读初级学园 · 初阶打底"
@@ -1710,10 +2205,12 @@ object QQSettingDialog {
        val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
        val hideQQSetting = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
        val debugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
+       val hireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
+       val hireUinsCsv = PetAdventureEngine.loadSavedHireFriendUins(context).joinToString(",")
 
-       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog)
+       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog, hireFriend, hireUinsCsv)
        if (engine != null && engine !== HookEntry.globalEngine) {
-           engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog)
+           engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog, hireFriend, hireUinsCsv)
        }
        val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
@@ -1737,6 +2234,8 @@ object QQSettingDialog {
            putExtra("extra_human_like_sleep", humanLikeSleep)
            putExtra("extra_hide_qq_setting_entry", hideQQSetting)
            putExtra("extra_debug_log", debugLog)
+           putExtra("extra_hire_friend_enabled", hireFriend)
+           putExtra("extra_hire_friend_uins", hireUinsCsv)
        }
        context.sendBroadcast(intent)
     }

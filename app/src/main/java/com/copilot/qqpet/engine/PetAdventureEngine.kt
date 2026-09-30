@@ -52,9 +52,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         @Volatile var enableLikeBack = true
         @Volatile var enableClaimCoinBag = true
         @Volatile var enableFatigueToAdventure = true
-        @Volatile var prefHumanLikeSleep = true
-        @Volatile var prefHideQQSettingEntry = false
-        @Volatile var prefDebugLog = false
+       @Volatile var prefHumanLikeSleep = true
+       @Volatile var prefHideQQSettingEntry = false
+       @Volatile var prefDebugLog = false
+       @Volatile var enableHireFriend = true
+       @Volatile var prefHireFriendUinsCsv = ""
+       @Volatile var cachedHireableFriends: List<QQPetDirectBridge.HireableFriend> = emptyList()
 
         // 实时状态文本与轮转游标
         @Volatile var currentStatusText = "全自动守护中 · 一刻不停三维轮转"
@@ -203,11 +206,99 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            learnedStudyName = null
            learnedWorkSubEvent = null
            learnedWorkName = null
-           todayLikedUins.clear()
-           todayClaimedBagIds.clear()
-           coinBagDailyLimitReached = false
-           QQPetDirectBridge.clearStaticRuntimeCache()
-       }
+          todayLikedUins.clear()
+          todayClaimedBagIds.clear()
+          coinBagDailyLimitReached = false
+          cachedHireableFriends = emptyList()
+          QQPetDirectBridge.clearStaticRuntimeCache()
+      }
+
+      fun parseHireFriendUins(csv: String = prefHireFriendUinsCsv): Set<Long> {
+          if (csv.isBlank()) return emptySet()
+          return csv.split(",")
+              .mapNotNull { it.trim().toLongOrNull() }
+              .filter { it > 0L }
+              .toSet()
+      }
+
+      fun loadSavedHireFriendUins(context: Context): Set<Long> {
+          return try {
+              val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+              val scopedKey = AccountSessionGuard.scopedKey(PreferencesHelper.KEY_HIRE_FRIEND_UINS, currentActiveUin)
+              val csv = prefs.getString(scopedKey, null)
+                  ?: prefs.getString(PreferencesHelper.KEY_HIRE_FRIEND_UINS, "")
+                  ?: ""
+              prefHireFriendUinsCsv = csv
+              parseHireFriendUins(csv)
+          } catch (_: Throwable) {
+              parseHireFriendUins(prefHireFriendUinsCsv)
+          }
+      }
+
+      fun saveHireFriendUins(context: Context, uins: Collection<Long>) {
+          val cleanSet = uins.filter { it > 0L }.toSet()
+          val csv = cleanSet.joinToString(",")
+          prefHireFriendUinsCsv = csv
+          try {
+              val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+              val editor = prefs.edit()
+                  .putString(PreferencesHelper.KEY_HIRE_FRIEND_UINS, csv)
+              if (AccountSessionGuard.isValidUin(currentActiveUin)) {
+                  editor.putString(AccountSessionGuard.scopedKey(PreferencesHelper.KEY_HIRE_FRIEND_UINS, currentActiveUin), csv)
+              }
+              editor.commit()
+          } catch (_: Throwable) {}
+      }
+
+      fun loadCachedHireableFriends(context: Context): List<QQPetDirectBridge.HireableFriend> {
+          if (cachedHireableFriends.isNotEmpty()) return cachedHireableFriends
+          try {
+              val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+              val scopedKey = AccountSessionGuard.scopedKey(PreferencesHelper.KEY_HIRE_FRIEND_CACHE, currentActiveUin)
+              val raw = prefs.getString(scopedKey, null)
+                  ?: prefs.getString(PreferencesHelper.KEY_HIRE_FRIEND_CACHE, "")
+                  ?: ""
+              if (raw.isNotBlank()) {
+                  val list = raw.lines().mapNotNull { line ->
+                      val parts = line.split("\t")
+                      val uin = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+                      val fNick = parts.getOrNull(1).orEmpty()
+                      val pNick = parts.getOrNull(2).orEmpty()
+                      val petId = parts.getOrNull(3).orEmpty()
+                      val power = parts.getOrNull(4)?.toLongOrNull() ?: 0L
+                      val intel = parts.getOrNull(5)?.toLongOrNull() ?: 0L
+                      val charm = parts.getOrNull(6)?.toLongOrNull() ?: 0L
+                      val idle = parts.getOrNull(7)?.toBooleanStrictOrNull() ?: true
+                      val rem = parts.getOrNull(8)?.toLongOrNull() ?: 0L
+                      if (uin > 0L && petId.isNotEmpty()) {
+                          QQPetDirectBridge.HireableFriend(uin, fNick, pNick, petId, power, intel, charm, idle, rem)
+                      } else null
+                  }
+                  if (list.isNotEmpty()) {
+                      cachedHireableFriends = list
+                      return list
+                  }
+              }
+          } catch (_: Throwable) {}
+          return cachedHireableFriends
+      }
+
+      fun saveCachedHireableFriends(context: Context, list: List<QQPetDirectBridge.HireableFriend>) {
+          cachedHireableFriends = list
+          try {
+              val raw = list.joinToString("\n") { f ->
+                  val safeFNick = f.friendNick.replace("\t", " ").replace("\n", " ")
+                  val safePNick = f.petNick.replace("\t", " ").replace("\n", " ")
+                  "${f.uin}\t$safeFNick\t$safePNick\t${f.petId}\t${f.power}\t${f.intel}\t${f.charm}\t${f.isIdle}\t${f.remainingSec}"
+              }
+              val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+              val editor = prefs.edit().putString(PreferencesHelper.KEY_HIRE_FRIEND_CACHE, raw)
+              if (AccountSessionGuard.isValidUin(currentActiveUin)) {
+                  editor.putString(AccountSessionGuard.scopedKey(PreferencesHelper.KEY_HIRE_FRIEND_CACHE, currentActiveUin), raw)
+              }
+              editor.commit()
+          } catch (_: Throwable) {}
+      }
 
        /**
         * 将验证通过的本人 petId 同时写入当前 UIN 专属分桶与兼容键
@@ -427,9 +518,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            prefHumanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
            prefHideQQSettingEntry = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
            prefDebugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
+           enableHireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
            com.copilot.qqpet.hook.HookLog.isDebugEnabled = prefDebugLog
 
            val liveUin = verifyAndSyncAccountSession(context)
+           loadSavedHireFriendUins(context)
+           loadCachedHireableFriends(context)
 
             val lSub = prefs.getLong("key_learned_study_sub", 0L)
             if (lSub in listOf(6101L, 6201L, 6301L)) {
@@ -494,7 +588,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        careCleanThreshold: Int = prefCareCleanThreshold,
        humanLikeSleep: Boolean = prefHumanLikeSleep,
        hideQQSettingEntry: Boolean = prefHideQQSettingEntry,
-       debugLog: Boolean = prefDebugLog
+       debugLog: Boolean = prefDebugLog,
+       hireFriend: Boolean = enableHireFriend,
+       hireFriendUinsCsv: String = prefHireFriendUinsCsv
    ) {
        enableStudy = study
        enableWork = work
@@ -516,6 +612,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        prefHumanLikeSleep = humanLikeSleep
        prefHideQQSettingEntry = hideQQSettingEntry
        prefDebugLog = debugLog
+       enableHireFriend = hireFriend
+       prefHireFriendUinsCsv = hireFriendUinsCsv
        com.copilot.qqpet.hook.HookLog.isDebugEnabled = debugLog
        Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold")
    }
@@ -1010,6 +1108,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            Pair(prefCustomWorkType, matched?.title ?: "小镇场所#$prefCustomWorkType")
        }
 
+      val hireCandidates = selectBestHireCandidatesAwait(context, petId)
+
       val (evtCode, dynamicJobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareerType)
       if (evtCode == 0 && dynamicJobs.isNotEmpty()) {
           sendLog(context, "💼 [岗位拉取] 服务端返回 ${dynamicJobs.size} 个工种: " + dynamicJobs.joinToString { "${it.eventName}(${it.costTime},can=${it.canDo})" })
@@ -1038,14 +1138,29 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
 
            currentStatusText = "$placeName: ${targetJob.eventName}"
            sendLog(context, "💼 [小镇上岗] 锁定场所: $placeName (Career=$targetCareerType, 工时偏好=$prefCustomWorkDuration) 锁定岗位: ${targetJob.eventName} (工时:${targetJob.costTime}, subEventType=${targetJob.subEventType})，发起启程...")
-           val (codeWork, storyId, errorMsg) = startWorkAwait(petId, targetJob.eventName, 6400L, targetJob.subEventType)
+           val (codeWork, storyId, errorMsg, hiredFriend) = startWorkWithOptionalHireAwait(
+               context = context,
+               petId = petId,
+               jobName = targetJob.eventName,
+               page = 6400L,
+               subEventType = targetJob.subEventType,
+               hireCandidates = hireCandidates
+           )
            if (codeWork == 0 && !storyId.isNullOrEmpty()) {
                lastActiveStoryId = storyId
                recordLearnedWorkJob(context, targetJob.eventName, targetJob.subEventType)
-               currentTaskTypeName = "打工中 · $placeName (${targetJob.eventName})"
+               val hireSuffix = if (hiredFriend != null) " · 雇佣:${hiredFriend.friendNick.ifEmpty { hiredFriend.uin.toString() }}" else ""
+               currentTaskTypeName = "打工中 · $placeName (${targetJob.eventName}$hireSuffix)"
                currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
-               currentStatusText = "正在 $placeName 进行 ${targetJob.eventName}"
-               sendLog(context, "🎉 [打工成功] 顺利开工 $placeName - ${targetJob.eventName}！StoryID: $storyId，勤劳致富中")
+               currentStatusText = "正在 $placeName 进行 ${targetJob.eventName}$hireSuffix"
+               if (hiredFriend != null) {
+                   sendLog(
+                       context,
+                       "🎉 [雇佣打工成功] 已成功雇佣最高收益空闲好友「${hiredFriend.friendNick.ifEmpty { hiredFriend.uin.toString() }}」(小宠:${hiredFriend.petNick}, 总资质:${hiredFriend.totalAttr}) 协同开工 $placeName - ${targetJob.eventName}！StoryID: $storyId"
+                   )
+               } else {
+                   sendLog(context, "🎉 [打工成功] 顺利开工 $placeName - ${targetJob.eventName}！StoryID: $storyId，勤劳致富中")
+               }
 
                return true
           } else if (codeWork == 135075) {
@@ -1099,17 +1214,29 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             }
             currentStatusText = "自适应打工: $modeDesc · ${job.first}"
             sendLog(context, "💼 [勤工俭学] ($modeDesc) 尝试发起 ${job.first} (subEvent=${job.third})...")
-            val (codeWork, storyId, errorMsg) = startWorkAwait(petId, job.first, job.second, job.third)
+            val (codeWork, storyId, errorMsg, hiredFriend) = startWorkWithOptionalHireAwait(
+                context = context,
+                petId = petId,
+                jobName = job.first,
+                page = job.second,
+                subEventType = job.third,
+                hireCandidates = hireCandidates
+            )
             if (codeWork == 0 && !storyId.isNullOrEmpty()) {
                 lastActiveStoryId = storyId
                 recordLearnedWorkJob(context, job.first, job.third)
-                currentTaskTypeName = "小镇打工中"
+                val hireSuffix = if (hiredFriend != null) " (雇佣:${hiredFriend.friendNick.ifEmpty { hiredFriend.uin.toString() }})" else ""
+                currentTaskTypeName = "小镇打工中$hireSuffix"
                 currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
                 if (prefWorkMode == 0) {
                     workJobCursor = (workJobCursor + 1) % 3
                 }
-                currentStatusText = "正在进行 ${job.first} · $modeDesc"
-                sendLog(context, "🎉 [打工成功] 顺利开工 ${job.first}！StoryID: $storyId")
+                currentStatusText = "正在进行 ${job.first} · $modeDesc$hireSuffix"
+                if (hiredFriend != null) {
+                    sendLog(context, "🎉 [雇佣打工成功] 已协同好友「${hiredFriend.friendNick.ifEmpty { hiredFriend.uin.toString() }}」顺利开工 ${job.first}！StoryID: $storyId")
+                } else {
+                    sendLog(context, "🎉 [打工成功] 顺利开工 ${job.first}！StoryID: $storyId")
+                }
 
                 return true
             } else {
@@ -1756,12 +1883,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         jobName: String = "小镇兼职",
         page: Long = 6400L,
         subEventType: Long = 6401L,
+        hiredPetId: String = "",
         timeoutMs: Long = NETWORK_TIMEOUT_MS
     ): Triple<Int, String?, String?> =
         try {
             withTimeoutOrNull(timeoutMs) {
                 suspendCancellableCoroutine { cont ->
-                    bridge.startWork(petId, jobName, page, subEventType) { code, storyId, _, errorMsg ->
+                    bridge.startWork(petId, jobName, page, subEventType, hiredPetId) { code, storyId, _, errorMsg ->
                         if (cont.isActive) cont.resume(Triple(code, storyId, errorMsg))
                     }
                 }
@@ -1769,6 +1897,253 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         } catch (t: Throwable) {
             Triple(-99, null, t.message)
         }
+
+    data class WorkStartWithHireResult(
+        val code: Int,
+        val storyId: String?,
+        val errorMsg: String?,
+        val hiredFriend: QQPetDirectBridge.HireableFriend?
+    )
+
+    private suspend fun startWorkWithOptionalHireAwait(
+        context: Context,
+        petId: String,
+        jobName: String,
+        page: Long,
+        subEventType: Long,
+        hireCandidates: List<QQPetDirectBridge.HireableFriend>
+    ): WorkStartWithHireResult {
+        if (enableHireFriend && hireCandidates.isNotEmpty()) {
+            for (candidate in hireCandidates) {
+                val friendLabel = candidate.friendNick.ifEmpty { candidate.uin.toString() }
+                sendLog(
+                    context,
+                    "🤝 [打工雇佣] 正在尝试雇佣空闲最高收益好友「$friendLabel」(QQ:${candidate.uin}, 小宠:${candidate.petNick}, 总资质:${candidate.totalAttr})..."
+                )
+                val (code, storyId, errMsg) = startWorkAwait(
+                    petId = petId,
+                    jobName = jobName,
+                    page = page,
+                    subEventType = subEventType,
+                    hiredPetId = candidate.petId
+                )
+                if (code == 0 && !storyId.isNullOrEmpty()) {
+                    return WorkStartWithHireResult(code, storyId, errMsg, candidate)
+                }
+                sendLog(
+                    context,
+                    "ℹ️ [雇佣顺延] 雇佣好友「$friendLabel」未能生效 (code=$code ${errMsg ?: ""})，尝试下一候选或回退单人打工..."
+                )
+                delay(350L)
+            }
+        }
+        val (soloCode, soloStoryId, soloErr) = startWorkAwait(
+            petId = petId,
+            jobName = jobName,
+            page = page,
+            subEventType = subEventType,
+            hiredPetId = ""
+        )
+        return WorkStartWithHireResult(soloCode, soloStoryId, soloErr, null)
+    }
+
+    data class PetFriendsPageResult(
+        val code: Int,
+        val friends: List<QQPetDirectBridge.HireableFriend>,
+        val hasMore: Boolean,
+        val nextCookie: String,
+        val errorMsg: String?
+    )
+
+    suspend fun fetchPetFriendsPageAwait(
+        cookie: String = "",
+        timeoutMs: Long = NETWORK_TIMEOUT_MS
+    ): PetFriendsPageResult =
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { cont ->
+                    bridge.fetchPetFriendsPage(cookie) { code, friends, hasMore, nextCookie, err ->
+                        if (cont.isActive) {
+                            cont.resume(PetFriendsPageResult(code, friends, hasMore, nextCookie, err))
+                        }
+                    }
+                }
+            } ?: PetFriendsPageResult(-99, emptyList(), false, "", "超时")
+        } catch (t: Throwable) {
+            PetFriendsPageResult(-99, emptyList(), false, "", t.message)
+        }
+
+    suspend fun enrichFriendDetailsAwait(
+        friend: QQPetDirectBridge.HireableFriend
+    ): QQPetDirectBridge.HireableFriend {
+        if (friend.petId.isBlank()) return friend
+        val details = querySecondMapInfoDetailsAwait(6100L, friend.petId)
+        val status = queryStoryStatusAwait(friend.petId)
+        val rem = status.remaining ?: 0L
+        val idle = (status.code != 0) || rem <= 0L
+        val p = if (details.code == 0 && details.power > 0L) details.power else friend.power
+        val i = if (details.code == 0 && details.intel > 0L) details.intel else friend.intel
+        val c = if (details.code == 0 && details.charm > 0L) details.charm else friend.charm
+        return friend.copy(
+            power = p,
+            intel = i,
+            charm = c,
+            isIdle = idle,
+            remainingSec = if (rem > 0L) rem else 0L
+        )
+    }
+
+    /**
+     * 拉取并合并全量养宠好友列表（0x985d_0 好友宠物榜 + 0x985e_0 互动访客列表）
+     * 并对已勾选白名单好友与前列好友探测真实三围资质与空闲状态
+     */
+    suspend fun fetchAllHireableFriendsAwait(
+        context: Context,
+        enrichSelectedAndTop: Boolean = true
+    ): List<QQPetDirectBridge.HireableFriend> {
+        val existingMap = loadCachedHireableFriends(context).associateBy { it.uin }.toMutableMap()
+        val mergedMap = LinkedHashMap<Long, QQPetDirectBridge.HireableFriend>()
+        val ownUin = bridge.getCurrentRuntimeUin().ifEmpty { currentActiveUin }
+
+        var cookie = ""
+        var pageCount = 0
+        while (pageCount < 10) {
+            pageCount++
+            val page = fetchPetFriendsPageAwait(cookie)
+            if (page.code != 0) break
+            for (f in page.friends) {
+                if (f.uin <= 0L || (ownUin.isNotEmpty() && f.uin.toString() == ownUin)) continue
+                val old = existingMap[f.uin]
+                mergedMap[f.uin] = if (old != null) {
+                    f.copy(
+                        friendNick = f.friendNick.ifEmpty { old.friendNick },
+                        petNick = f.petNick.ifEmpty { old.petNick },
+                        power = old.power,
+                        intel = old.intel,
+                        charm = old.charm,
+                        isIdle = old.isIdle,
+                        remainingSec = old.remainingSec
+                    )
+                } else f
+            }
+            if (!page.hasMore || page.nextCookie.isEmpty() || page.nextCookie == cookie) break
+            cookie = page.nextCookie
+            delay(120L)
+        }
+
+        // 补充来访列表中有 petId 的好友
+        val (likeCode, likeMembers) = fetchLikeListAwait("")
+        if (likeCode == 0) {
+            for (m in likeMembers) {
+                if (m.uin <= 0L || m.petId.isBlank() || (ownUin.isNotEmpty() && m.uin.toString() == ownUin)) continue
+                if (!mergedMap.containsKey(m.uin)) {
+                    val old = existingMap[m.uin]
+                    mergedMap[m.uin] = QQPetDirectBridge.HireableFriend(
+                        uin = m.uin,
+                        friendNick = m.nick.ifEmpty { old?.friendNick.orEmpty() },
+                        petNick = old?.petNick.orEmpty(),
+                        petId = m.petId,
+                        power = old?.power ?: 0L,
+                        intel = old?.intel ?: 0L,
+                        charm = old?.charm ?: 0L,
+                        isIdle = old?.isIdle ?: true,
+                        remainingSec = old?.remainingSec ?: 0L
+                    )
+                }
+            }
+        }
+
+        // 若本次网络未拉到任何新节点，回退保留已有缓存
+        if (mergedMap.isEmpty() && existingMap.isNotEmpty()) {
+            mergedMap.putAll(existingMap)
+        }
+
+        val selectedUins = loadSavedHireFriendUins(context)
+        if (enrichSelectedAndTop && mergedMap.isNotEmpty()) {
+            val toEnrichUins = LinkedHashSet<Long>()
+            for (u in selectedUins) {
+                if (mergedMap.containsKey(u)) toEnrichUins.add(u)
+            }
+            for (f in mergedMap.values) {
+                if (toEnrichUins.size >= (selectedUins.size + 8)) break
+                if (f.totalAttr <= 0L) {
+                    toEnrichUins.add(f.uin)
+                }
+            }
+            for (u in toEnrichUins) {
+                val cur = mergedMap[u] ?: continue
+                mergedMap[u] = enrichFriendDetailsAwait(cur)
+                delay(80L)
+            }
+        }
+
+        val sortedList = mergedMap.values.sortedWith(
+            compareByDescending<QQPetDirectBridge.HireableFriend> { selectedUins.contains(it.uin) }
+                .thenByDescending { it.totalAttr }
+                .thenBy { it.uin }
+        )
+        saveCachedHireableFriends(context, sortedList)
+        return sortedList
+    }
+
+    /**
+     * 在已勾选的好友白名单中：过滤非勾选好友 -> 实时探测空闲状态与真实三围资质 -> 按总资质从高到低返回可雇佣列表
+     */
+    private suspend fun selectBestHireCandidatesAwait(
+        context: Context,
+        ownPetId: String
+    ): List<QQPetDirectBridge.HireableFriend> {
+        if (!enableHireFriend) return emptyList()
+        val selectedUins = loadSavedHireFriendUins(context)
+        if (selectedUins.isEmpty()) {
+            return emptyList()
+        }
+
+        var allFriends = loadCachedHireableFriends(context)
+        val cachedUinSet = allFriends.map { it.uin }.toSet()
+        if (!selectedUins.all { cachedUinSet.contains(it) }) {
+            allFriends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
+        }
+
+        val matched = allFriends.filter { it.uin in selectedUins && it.petId.isNotBlank() && it.petId != ownPetId }
+        if (matched.isEmpty()) {
+            sendLog(context, "ℹ️ [打工雇佣] 已勾选 ${selectedUins.size} 位白名单好友，暂未匹配到有效宠物 ID，本次执行单人打工")
+            return emptyList()
+        }
+
+        sendLog(context, "🔍 [打工雇佣] 正在检测已勾选的 ${matched.size} 位白名单好友空闲状态与收益资质...")
+        val updatedMap = allFriends.associateBy { it.uin }.toMutableMap()
+        val liveChecked = mutableListOf<QQPetDirectBridge.HireableFriend>()
+        for (friend in matched) {
+            val enriched = enrichFriendDetailsAwait(friend)
+            updatedMap[enriched.uin] = enriched
+            liveChecked.add(enriched)
+            val name = enriched.friendNick.ifEmpty { enriched.uin.toString() }
+            val stateStr = if (enriched.isIdle) "空闲可雇" else "忙碌中(剩${enriched.remainingSec / 60}分)"
+            sendLog(
+                context,
+                "   👤 好友「$name」(${enriched.uin}) · 小宠:${enriched.petNick.ifEmpty { "未知" }} · 状态:$stateStr · 实测总资质:${enriched.totalAttr} (力${enriched.power}/智${enriched.intel}/魅${enriched.charm})"
+            )
+            delay(80L)
+        }
+        saveCachedHireableFriends(context, updatedMap.values.toList())
+
+        val idleCandidates = liveChecked
+            .filter { it.isIdle }
+            .sortedByDescending { it.totalAttr }
+
+        if (idleCandidates.isEmpty()) {
+            sendLog(context, "ℹ️ [打工雇佣] 已勾选的白名单好友当前均在忙碌中，本次自动转为单人打工")
+        } else {
+            val best = idleCandidates.first()
+            val bestName = best.friendNick.ifEmpty { best.uin.toString() }
+            sendLog(
+                context,
+                "🏆 [雇佣优选] 已锁定空闲且收益资质最高的好友：「$bestName」(总资质:${best.totalAttr})"
+            )
+        }
+        return idleCandidates
+    }
 
     private suspend fun startSchoolAwait(
         petId: String,
