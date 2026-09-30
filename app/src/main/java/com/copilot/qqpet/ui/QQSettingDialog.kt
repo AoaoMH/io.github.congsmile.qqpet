@@ -1114,9 +1114,12 @@ object QQSettingDialog {
        addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
        addSimpleToggleRow(dailyCard, "自动领取好友福袋", "自动扫描好友小窝并拆取掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
        addSimpleToggleRow(dailyCard, "疲惫时自动转冒险", "检测到疲惫收益减少时，取消打工和学习转去冒险直至恢复", PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true, false)
-        addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
-        addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, true)
-        contentLayout.addView(dailyCard)
+       addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
+       addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, false)
+       addSimpleToggleRow(dailyCard, "动态拟人休眠", "随机1~3分钟非固定周期休眠，有效避免行为时序聚类识别", PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true, false)
+       addSimpleToggleRow(dailyCard, "QQ设置页纯净隐身", "仅在QQ内部隐藏本弹窗卡片，可通过伴侣独立App管理", PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false, false)
+       addSimpleToggleRow(dailyCard, "调试详细日志", "默认静默，开启后向 XposedBridge 打印详细发包日志", PreferencesHelper.KEY_DEBUG_LOG, false, true)
+       contentLayout.addView(dailyCard)
 
         // ================= 5. 分组三：手动即时指令 (iOS Action List 纯文字) =================
         addSectionHeader("手动即时指令")
@@ -1704,10 +1707,13 @@ object QQSettingDialog {
        val workDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
        val careEnergy = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
        val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
+       val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+       val hideQQSetting = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+       val debugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
 
-       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean)
+       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog)
        if (engine != null && engine !== HookEntry.globalEngine) {
-           engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean)
+           engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, hideQQSetting, debugLog)
        }
        val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
@@ -1728,6 +1734,9 @@ object QQSettingDialog {
            putExtra("extra_work_duration", workDuration)
            putExtra("extra_care_energy_threshold", careEnergy)
            putExtra("extra_care_clean_threshold", careClean)
+           putExtra("extra_human_like_sleep", humanLikeSleep)
+           putExtra("extra_hide_qq_setting_entry", hideQQSetting)
+           putExtra("extra_debug_log", debugLog)
        }
        context.sendBroadcast(intent)
     }

@@ -39,6 +39,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         var currentActiveUin: String = ""
         @Volatile
         var isLoopRunning = false
+        @Volatile
+        var lastFatigueSwitchTimeMillis: Long = 0L
+        private const val FATIGUE_SWITCH_COOLDOWN_MS = 10 * 60 * 1000L
 
         // 跨进程配置开关（默认全开）
         @Volatile var enableStudy = true
@@ -49,6 +52,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         @Volatile var enableLikeBack = true
         @Volatile var enableClaimCoinBag = true
         @Volatile var enableFatigueToAdventure = true
+        @Volatile var prefHumanLikeSleep = true
+        @Volatile var prefHideQQSettingEntry = false
+        @Volatile var prefDebugLog = false
 
         // 实时状态文本与轮转游标
         @Volatile var currentStatusText = "全自动守护中 · 一刻不停三维轮转"
@@ -418,6 +424,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            prefCustomWorkDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
            prefCareEnergyThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
            prefCareCleanThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
+           prefHumanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+           prefHideQQSettingEntry = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+           prefDebugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
+           com.copilot.qqpet.hook.HookLog.isDebugEnabled = prefDebugLog
 
            val liveUin = verifyAndSyncAccountSession(context)
 
@@ -481,7 +491,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        workType: Int = prefCustomWorkType,
        workDuration: Int = prefCustomWorkDuration,
        careEnergyThreshold: Int = prefCareEnergyThreshold,
-       careCleanThreshold: Int = prefCareCleanThreshold
+       careCleanThreshold: Int = prefCareCleanThreshold,
+       humanLikeSleep: Boolean = prefHumanLikeSleep,
+       hideQQSettingEntry: Boolean = prefHideQQSettingEntry,
+       debugLog: Boolean = prefDebugLog
    ) {
        enableStudy = study
        enableWork = work
@@ -500,6 +513,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        prefCustomWorkDuration = workDuration
        prefCareEnergyThreshold = careEnergyThreshold
        prefCareCleanThreshold = careCleanThreshold
+       prefHumanLikeSleep = humanLikeSleep
+       prefHideQQSettingEntry = hideQQSettingEntry
+       prefDebugLog = debugLog
+       com.copilot.qqpet.hook.HookLog.isDebugEnabled = debugLog
        Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold")
    }
 
@@ -518,12 +535,14 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 while (isLoopRunning) {
                     try {
                         executeMasterCycle(context)
-                    } catch (t: Throwable) {
-                        currentStatusText = "巡检异常，稍后重试"
-                        sendLog(context, "⚠️ [异常] 巡检报错: ${t.message}，15秒后重试")
-                        delay(15 * 1000L)
-                    }
-                }
+                   } catch (t: Throwable) {
+                       currentStatusText = "巡检异常，稍后重试"
+                       val errDelay = StealthScheduler.calculateIdleCycleDelayMillis(prefHumanLikeSleep)
+                       val errSec = errDelay / 1000L
+                       sendLog(context, "⚠️ [异常] 巡检报错: ${t.message}，拟人休眠 ${errSec} 秒后重试")
+                       delay(errDelay)
+                   }
+               }
             } finally {
                 isLoopRunning = false
                 Log.w(TAG, "后台循环已退出，重置 isLoopRunning 为 false")
@@ -588,7 +607,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 sendLog(context, "⏳ [状态] 宠物正在$taskType (StoryID: ${storyStatus.storyId})，剩余 $mins 分 $secs 秒 (总计 ${storyStatus.total ?: 0} 秒)")
 
                 // 2.5 若开启「疲惫时自动转冒险」，且当前正在学习(6100)或打工(6400)，实时检测是否带有疲惫减益 Buff
-                if (enableFatigueToAdventure && (storyStatus.storyId.startsWith("6100") || storyStatus.storyId.startsWith("6400"))) {
+                val now = System.currentTimeMillis()
+                val isCoolingDown = (now - lastFatigueSwitchTimeMillis) < FATIGUE_SWITCH_COOLDOWN_MS
+                if (enableFatigueToAdventure && (storyStatus.storyId.startsWith("6100") || storyStatus.storyId.startsWith("6400")) && !isCoolingDown) {
                     val fatigueRes = queryProcessStoryInfoAwait(storyStatus.storyId, petId)
                     if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
                         val switched = handleFatigueSwitchToAdventure(
@@ -729,13 +750,15 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            }
        }
 
-        // 若当前仍有任务在身，不触发新的外出，睡眠 30 秒以保持倒计时和状态动态刷新
-        if (hasActiveTask) {
-            val rem = storyStatus.remaining ?: 30L
-            val sleepSec = minOf(rem + 2, 30L)
-            delay(sleepSec * 1000L)
-            return
-        }
+       // 若当前仍有任务在身，不触发新的外出，睡眠 30 秒以保持倒计时和状态动态刷新
+       if (hasActiveTask) {
+           val rem = storyStatus.remaining ?: 30L
+           val sleepSec = StealthScheduler.calculateTaskSleepSeconds(rem, prefHumanLikeSleep)
+           val minText = String.format(java.util.Locale.CHINA, "%.1f", sleepSec / 60.0)
+           sendLog(context, "⏳ [在途任务] 宠物正在进行任务中，动态拟人休眠 ${sleepSec} 秒 (~${minText} 分钟)")
+           delay(sleepSec * 1000L)
+           return
+       }
 
         // 5. 【Round-Robin 智能轮转核心】在已启用的任务中无缝轮换，杜绝互斥冲突
         val availableTasks = mutableListOf<String>()
@@ -792,10 +815,14 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             }
         }
 
-        currentStatusText = "等待下次调度"
-        sendLog(context, "😴 [轮询] 当前轮次完成，15 秒后继续自适应调度")
-        delay(15 * 1000L)
-    }
+       currentStatusText = "等待下次调度"
+       val delayMillis = StealthScheduler.calculateIdleCycleDelayMillis(prefHumanLikeSleep)
+       val sec = delayMillis / 1000L
+       val minText = String.format(java.util.Locale.CHINA, "%.1f", sec / 60.0)
+       currentStatusText = "等待下次调度 (~${minText}分钟)"
+       sendLog(context, "😴 [拟人休眠] 当前轮次完成，拟人休眠 ${sec} 秒 (~${minText} 分钟) 后继续自适应调度")
+       delay(delayMillis)
+   }
 
     /**
      * 智能自适应选课调度：优先已学习课程，结合自选模式与多阶段候选池探测
@@ -830,7 +857,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        val (evtCode, dynamicEvents) = querySelectEventsAwait(6100L, petId, schoolStage = targetStage, careerType = 0)
        if (evtCode == 0 && dynamicEvents.isNotEmpty()) {
            sendLog(context, "📚 [课程拉取] 服务端返回 ${dynamicEvents.size} 门课程: " + dynamicEvents.joinToString { "${it.eventName}(${it.costTime},${it.reward.take(6)},can=${it.canDo})" })
-           if (enableFatigueToAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+           if (enableFatigueToAdventure && enableAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
                val switched = handleFatigueSwitchToAdventure(
                    context = context,
                    petId = petId,
@@ -840,6 +867,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                )
                if (switched) return true
                 return false
+           } else if (enableFatigueToAdventure && !enableAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+               sendLog(context, "ℹ️ [疲惫兼顾] 检测到小宠带有疲惫减益，因「神秘森林冒险」已关闭，继续执行选课修行")
            }
             
             // 优先筛选满足条件 (canDo == true) 的课程
@@ -874,13 +903,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
                 currentStatusText = "正在进修 ${targetCourse.eventName} · $modeDesc"
                 sendLog(context, "🎉 [开课成功] 顺利开启 ${targetCourse.eventName}！StoryID: $storyId，学分高速增长中")
-                if (enableFatigueToAdventure) {
-                    delay(600L)
-                    val fatigueRes = queryProcessStoryInfoAwait(storyId, petId)
-                    if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
-                        handleFatigueSwitchToAdventure(context, petId, storyId, "进修 ${targetCourse.eventName}", fatigueRes.tipText)
-                    }
-                }
+
                 return true
            } else if (codeSchool == 135075) {
                sendLog(context, "🔄 [选课自愈] 服务端返回 135075，正在重新同步当前账号宠物 ID 与在途任务...")
@@ -893,8 +916,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            sendLog(context, "⚠️ [动态选课] 服务端动态拉取课程回包 code=$evtCode, 尝试候选池保底...")
        }
 
-        // 若处于疲惫状态且开启疲惫转冒险，绝不使用保底候选池上学
-        if (enableFatigueToAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+        // 若处于疲惫状态且开启疲惫转冒险且主动开启了冒险，才放弃保底候选池
+        if (enableFatigueToAdventure && enableAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
             return false
         }
 
@@ -944,13 +967,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 }
                 currentStatusText = "正在进修 ${course.first} · $modeDesc"
                 sendLog(context, "🎉 [开课成功] 顺利开启 ${course.first}！StoryID: $storyId，属性与学分高速增长中")
-                if (enableFatigueToAdventure) {
-                    delay(600L)
-                    val fatigueRes = queryProcessStoryInfoAwait(storyId, petId)
-                    if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
-                        handleFatigueSwitchToAdventure(context, petId, storyId, "进修 ${course.first}", fatigueRes.tipText)
-                    }
-                }
+
                 return true
             } else {
                 sendLog(context, "ℹ️ [课程探测] ${course.first} 回包 code=$codeSchool, 服务端说明: ${errorMsg ?: "无"}")
@@ -996,7 +1013,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
       val (evtCode, dynamicJobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareerType)
       if (evtCode == 0 && dynamicJobs.isNotEmpty()) {
           sendLog(context, "💼 [岗位拉取] 服务端返回 ${dynamicJobs.size} 个工种: " + dynamicJobs.joinToString { "${it.eventName}(${it.costTime},can=${it.canDo})" })
-          if (enableFatigueToAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+          if (enableFatigueToAdventure && enableAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
               val switched = handleFatigueSwitchToAdventure(
                   context = context,
                   petId = petId,
@@ -1006,6 +1023,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
               )
               if (switched) return true
               return false
+          } else if (enableFatigueToAdventure && !enableAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+              sendLog(context, "ℹ️ [疲惫兼顾] 检测到小宠带有疲惫减益，因「神秘森林冒险」已关闭，继续执行小镇求职")
           }
           val availableJobs = dynamicJobs.filter { it.canDo }.ifEmpty { dynamicJobs }
            // 根据工时偏好精准挑选 (官方阶梯: 10分钟 / 45分钟 / 2小时 / 4小时)
@@ -1027,13 +1046,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
                currentStatusText = "正在 $placeName 进行 ${targetJob.eventName}"
                sendLog(context, "🎉 [打工成功] 顺利开工 $placeName - ${targetJob.eventName}！StoryID: $storyId，勤劳致富中")
-               if (enableFatigueToAdventure) {
-                   delay(600L)
-                   val fatigueRes = queryProcessStoryInfoAwait(storyId, petId)
-                   if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
-                       handleFatigueSwitchToAdventure(context, petId, storyId, "打工 ${targetJob.eventName}", fatigueRes.tipText)
-                   }
-               }
+
                return true
           } else if (codeWork == 135075) {
               sendLog(context, "🔄 [打工自愈] 服务端返回 135075，正在重新同步当前账号宠物 ID 与在途任务...")
@@ -1046,8 +1059,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            sendLog(context, "⚠️ [动态打工] 服务端动态拉取工种回包 code=$evtCode, 尝试候选池保底...")
        }
 
-       // 若处于疲惫状态且开启疲惫转冒险，绝不使用保底候选池打工
-       if (enableFatigueToAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
+       // 若处于疲惫状态且开启疲惫转冒险且主动开启了冒险，才放弃保底候选池
+       if (enableFatigueToAdventure && enableAdventure && QQPetDirectBridge.lastSelectEventsFatigued) {
            return false
        }
 
@@ -1097,13 +1110,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 }
                 currentStatusText = "正在进行 ${job.first} · $modeDesc"
                 sendLog(context, "🎉 [打工成功] 顺利开工 ${job.first}！StoryID: $storyId")
-                if (enableFatigueToAdventure) {
-                    delay(600L)
-                    val fatigueRes = queryProcessStoryInfoAwait(storyId, petId)
-                    if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
-                        handleFatigueSwitchToAdventure(context, petId, storyId, "打工 ${job.first}", fatigueRes.tipText)
-                    }
-                }
+
                 return true
             } else {
                 sendLog(context, "ℹ️ [工种探测] ${job.first} 回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
@@ -1457,6 +1464,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                     .putString("key_task_type", currentTaskTypeName)
                     .commit()
             } catch (_: Throwable) {}
+            lastFatigueSwitchTimeMillis = System.currentTimeMillis()
+            QQPetDirectBridge.clearStaticRuntimeCache()
             sendLog(context, "🎉 [疲惫转冒险] 成功转去神秘森林探险 (StoryID: $advStoryId)！待疲惫 Buff 刷新消失后将自动恢复学习/打工")
             true
         } else {

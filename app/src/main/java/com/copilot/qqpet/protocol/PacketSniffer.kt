@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.copilot.qqpet.HookEntry
 import com.copilot.qqpet.engine.PetAdventureEngine
+import com.copilot.qqpet.hook.HookLog
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -23,7 +24,7 @@ object PacketSniffer {
         try {
             val (delegateCls, sendMethod) = QQPetDirectBridge.findDelegateClass(classLoader)
             if (delegateCls == null) {
-                XposedBridge.log("[$TAG] ⚠️ 尚未定位到发包代理类，嗅探器稍后重试")
+                HookLog.log(TAG, "⚠️ 尚未定位到发包代理类，嗅探器稍后重试")
                 return
             }
             val methodName = sendMethod?.name ?: QQPetDirectBridge.resolvedSendMethodName
@@ -43,7 +44,7 @@ object PacketSniffer {
                             val taskName = ProtoWire.firstString(req, 6) ?: ""
                             val subEventType = ProtoWire.firstVarint(req, 7) ?: 0L
 
-                            XposedBridge.log("[$TAG] 🎯 嗅探到用户前台原生出行发包: page=$page, taskName='$taskName', subEventType=$subEventType, petId=$petId")
+                            HookLog.log(TAG, "🎯 嗅探到用户前台原生出行发包: page=$page, taskName='$taskName', subEventType=$subEventType, petId=$petId")
                             Log.i(TAG, "🎯 嗅探到用户前台原生出行发包: page=$page, taskName='$taskName', subEventType=$subEventType")
                         }
                     } catch (t: Throwable) {
@@ -52,9 +53,9 @@ object PacketSniffer {
                 }
             })
             isHooked = true
-            XposedBridge.log("[$TAG] ✅ 成功挂载 QQ 宠物前台发包智能自学习嗅探器")
+            HookLog.log(TAG, "✅ 成功挂载 QQ 宠物前台发包智能自学习嗅探器")
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] 挂载嗅探器失败: ${t.message}")
+            HookLog.log(TAG, "挂载嗅探器失败: ${t.message}")
         }
     }
 }

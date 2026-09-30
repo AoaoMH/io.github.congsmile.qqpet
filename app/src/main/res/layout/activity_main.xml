@@ -275,6 +275,27 @@
                     android:layout_height="wrap_content"
                     android:text="@string/feature_settle"
                     android:textColor="@color/text_primary" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchHumanLikeSleep"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="动态拟人休眠 (随机1~3分钟)"
+                    android:textColor="@color/text_primary" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchHideQQSetting"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="QQ设置页纯净隐身"
+                    android:textColor="@color/text_primary" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchDebugLog"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="调试模式详细日志"
+                    android:textColor="@color/text_primary" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

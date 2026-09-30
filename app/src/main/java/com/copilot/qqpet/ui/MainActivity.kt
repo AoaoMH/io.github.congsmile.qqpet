@@ -134,8 +134,11 @@ class MainActivity : AppCompatActivity() {
         binding.switchStudy.isChecked = prefs.getBoolean(PreferencesHelper.KEY_STUDY, true)
         binding.switchWork.isChecked = prefs.getBoolean(PreferencesHelper.KEY_WORK, true)
         binding.switchCare.isChecked = prefs.getBoolean(PreferencesHelper.KEY_CARE, true)
-        binding.switchAdventure.isChecked = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, true)
+        binding.switchAdventure.isChecked = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, false)
         binding.switchSettle.isChecked = prefs.getBoolean(PreferencesHelper.KEY_SETTLE, true)
+        binding.switchHumanLikeSleep.isChecked = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+        binding.switchHideQQSetting.isChecked = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+        binding.switchDebugLog.isChecked = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
 
         // 绑定修改监听
         binding.switchStudy.setOnCheckedChangeListener { _, isChecked ->
@@ -158,6 +161,18 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putBoolean(PreferencesHelper.KEY_SETTLE, isChecked).apply()
             syncConfigToQQ()
         }
+        binding.switchHumanLikeSleep.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, isChecked).apply()
+            syncConfigToQQ()
+        }
+        binding.switchHideQQSetting.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, isChecked).apply()
+            syncConfigToQQ()
+        }
+        binding.switchDebugLog.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PreferencesHelper.KEY_DEBUG_LOG, isChecked).apply()
+            syncConfigToQQ()
+        }
     }
 
     private fun syncConfigToQQ() {
@@ -165,8 +180,14 @@ class MainActivity : AppCompatActivity() {
        val study = prefs.getBoolean(PreferencesHelper.KEY_STUDY, true)
        val work = prefs.getBoolean(PreferencesHelper.KEY_WORK, true)
        val care = prefs.getBoolean(PreferencesHelper.KEY_CARE, true)
-       val adv = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, true)
+       val adv = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, false)
        val settle = prefs.getBoolean(PreferencesHelper.KEY_SETTLE, true)
+       val likeBack = prefs.getBoolean(PreferencesHelper.KEY_LIKE_BACK, true)
+       val claimCoinBag = prefs.getBoolean(PreferencesHelper.KEY_CLAIM_COINBAG, true)
+       val fatigueToAdv = prefs.getBoolean(PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true)
+       val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+       val hideSetting = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+       val debugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
 
        try {
            val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
@@ -176,6 +197,12 @@ class MainActivity : AppCompatActivity() {
                putExtra("extra_care", care)
                putExtra("extra_adventure", adv)
                putExtra("extra_settle", settle)
+               putExtra("extra_like_back", likeBack)
+               putExtra("extra_claim_coinbag", claimCoinBag)
+               putExtra("extra_fatigue_to_adventure", fatigueToAdv)
+               putExtra("extra_human_like_sleep", humanLikeSleep)
+               putExtra("extra_hide_qq_setting_entry", hideSetting)
+               putExtra("extra_debug_log", debugLog)
            }
            sendBroadcast(intent)
         } catch (t: Throwable) {

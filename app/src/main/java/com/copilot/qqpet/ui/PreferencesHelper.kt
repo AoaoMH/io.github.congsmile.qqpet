@@ -22,6 +22,9 @@ object PreferencesHelper {
     const val KEY_COURSE_DURATION = "key_custom_course_duration"
     const val KEY_WORK_TYPE = "key_custom_work_type"
     const val KEY_WORK_DURATION = "key_custom_work_duration"
+    const val KEY_HUMAN_LIKE_SLEEP = "key_human_like_sleep"
+    const val KEY_HIDE_QQ_SETTING_ENTRY = "key_hide_qq_setting_entry"
+    const val KEY_DEBUG_LOG = "key_debug_log"
 
    fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

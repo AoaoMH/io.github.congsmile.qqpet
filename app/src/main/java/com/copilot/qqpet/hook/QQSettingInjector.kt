@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.copilot.qqpet.HookEntry
+import com.copilot.qqpet.engine.StealthScheduler
+import com.copilot.qqpet.ui.PreferencesHelper
 import com.copilot.qqpet.ui.QQSettingDialog
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -50,13 +52,19 @@ object QQSettingInjector {
                     val groupList = param.result as? MutableList<Any> ?: return
                     if (groupList.isEmpty()) return
 
+                    val prefs = ctx.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+                    val hideEntry = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+                    if (!StealthScheduler.shouldInjectSettingCard(hideEntry)) {
+                        return
+                    }
+
                     try {
                         // 使用通用条目处理器 com.tencent.mobileqq.setting.processor.i
                         val itemCls = Class.forName("com.tencent.mobileqq.setting.processor.i", false, classLoader)
-                        XposedBridge.log("[$TAG] 目标处理器 com.tencent.mobileqq.setting.processor.i:")
-                        XposedBridge.log("[$TAG]   构造函数: ${itemCls.constructors.map { c -> c.parameterTypes.map { it.simpleName } }}")
-                        XposedBridge.log("[$TAG]   字段: ${itemCls.declaredFields.map { "${it.name}:${it.type.simpleName}" }}")
-                        XposedBridge.log("[$TAG]   方法: ${itemCls.declaredMethods.map { "${it.name}(${it.parameterTypes.map { p -> p.simpleName }})->${it.returnType.simpleName}" }}")
+                        HookLog.log(TAG, "目标处理器 com.tencent.mobileqq.setting.processor.i:")
+                        HookLog.log(TAG, "  构造函数: ${itemCls.constructors.map { c -> c.parameterTypes.map { it.simpleName } }}")
+                        HookLog.log(TAG, "  字段: ${itemCls.declaredFields.map { "${it.name}:${it.type.simpleName}" }}")
+                        HookLog.log(TAG, "  方法: ${itemCls.declaredMethods.map { "${it.name}(${it.parameterTypes.map { p -> p.simpleName }})->${it.returnType.simpleName}" }}")
 
                         val sampleGroup = groupList.first()
                         val groupCls = sampleGroup.javaClass
@@ -86,10 +94,10 @@ object QQSettingInjector {
                                     }
                                 }
                                 newItem = c.newInstance(*args)
-                                XposedBridge.log("[$TAG] 成功创建 processor.i 实例 (args count=${pTypes.size})！")
+                                HookLog.log(TAG, "成功创建 processor.i 实例 (args count=${pTypes.size})！")
                                 break
                             } catch (e: Throwable) {
-                                XposedBridge.log("[$TAG] 构造失败: ${e.message}")
+                                HookLog.log(TAG, "构造失败: ${e.message}")
                             }
                         }
 
@@ -100,11 +108,11 @@ object QQSettingInjector {
                             f.isAccessible = true
                             if (f.name == "g" && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
                                 f.set(newItem, "Q宠后台伴侣")
-                                XposedBridge.log("[$TAG] 赋值字段 g = Q宠后台伴侣")
+                                HookLog.log(TAG, "赋值字段 g = Q宠后台伴侣")
                             }
                             if (f.name == "h" && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
                                 f.set(newItem, "纯后台全自动调度")
-                                XposedBridge.log("[$TAG] 赋值字段 h = 纯后台全自动调度")
+                                HookLog.log(TAG, "赋值字段 h = 纯后台全自动调度")
                             }
                         }
 
@@ -130,7 +138,7 @@ object QQSettingInjector {
                                 null
                             }
                             clickListenerMethod.invoke(newItem, clickProxy)
-                            XposedBridge.log("[$TAG] 成功绑定点击代理！")
+                            HookLog.log(TAG, "成功绑定点击代理！")
                         }
 
                         // 构造 SettingGroup 包装 newItem
@@ -153,14 +161,14 @@ object QQSettingInjector {
                                     val newGroup = c.newInstance(*args)
                                     // 插入在第 2 个位置（紧随账号安全等关键项之后）
                                     groupList.add(2, newGroup)
-                                    XposedBridge.log("[$TAG] 🎯 完美插入「Q宠后台伴侣」专属卡片！")
+                                    HookLog.log(TAG, "🎯 完美插入「Q宠后台伴侣」专属卡片！")
                                     break
                                 }
                             } catch (_: Throwable) {}
                         }
 
                     } catch (t: Throwable) {
-                        XposedBridge.log("[$TAG] 挂载异常: ${Log.getStackTraceString(t)}")
+                        HookLog.log(TAG, "挂载异常: ${Log.getStackTraceString(t)}")
                     }
                 }
             })
@@ -171,7 +179,7 @@ object QQSettingInjector {
     }
 
     private fun onSettingEntryClick(context: Context) {
-        XposedBridge.log("[$TAG] ⚡ 用户在 QQ 设置中点击了「Q宠后台伴侣」！")
+        HookLog.log(TAG, "⚡ 用户在 QQ 设置中点击了「Q宠后台伴侣」！")
         try {
             HookEntry.globalEngine?.startBackgroundLoop(context.applicationContext)
             if (context is Activity) {
@@ -186,7 +194,7 @@ object QQSettingInjector {
                 context.startActivity(intent)
             }
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] 调起伴侣控制弹窗失败: ${t.message}")
+            HookLog.log(TAG, "调起伴侣控制弹窗失败: ${t.message}")
         }
     }
 }

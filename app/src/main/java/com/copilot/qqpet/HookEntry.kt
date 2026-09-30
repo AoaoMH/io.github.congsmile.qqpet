@@ -9,9 +9,12 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import com.copilot.qqpet.engine.PetAdventureEngine
+import com.copilot.qqpet.engine.StealthScheduler
+import com.copilot.qqpet.hook.HookLog
 import com.copilot.qqpet.hook.QQSettingInjector
 import com.copilot.qqpet.protocol.PacketSniffer
 import com.copilot.qqpet.protocol.QQPetDirectBridge
+import com.copilot.qqpet.ui.PreferencesHelper
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XC_MethodReplacement
@@ -32,6 +35,8 @@ class HookEntry : IXposedHookLoadPackage {
         const val ACTION_TRIGGER_ACTION = "io.github.congsmile.qqpet.ACTION_TRIGGER_ACTION"
         const val ACTION_UPDATE_CONFIG = "io.github.congsmile.qqpet.ACTION_UPDATE_CONFIG"
 
+        @Volatile
+        private var isSplashHooked = false
         private var isReceiverRegistered = false
         @Volatile
         var globalEngine: PetAdventureEngine? = null
@@ -56,7 +61,7 @@ class HookEntry : IXposedHookLoadPackage {
             return
         }
 
-        XposedBridge.log("[$TAG] 成功注入 QQ 主进程: ${lpparam.processName}, PID=${android.os.Process.myPid()}")
+        HookLog.log(TAG, "成功注入 QQ 主进程: ${lpparam.processName}, PID=${android.os.Process.myPid()}")
 
         // 挂钩 1: BaseApplicationImpl.onCreate (获取真实分包完成后的 ClassLoader)
         try {
@@ -68,14 +73,15 @@ class HookEntry : IXposedHookLoadPackage {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val app = param.thisObject as? Context ?: return
                         val appLoader = app.classLoader
-                        XposedBridge.log("[$TAG] BaseApplicationImpl.onCreate 触发, classLoader=$appLoader")
+                        HookLog.log(TAG, "BaseApplicationImpl.onCreate 触发, classLoader=$appLoader")
                         initEngineAndReceiver(app, appLoader, "BaseApplicationImpl.onCreate")
+                        hookSplashActivity(appLoader)
                         QQSettingInjector.inject(appLoader)
                     }
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] Hook BaseApplicationImpl 异常: ${t.message}")
+            HookLog.log(TAG, "Hook BaseApplicationImpl 异常: ${t.message}")
         }
 
         // 挂钩 2: MobileQQ.onCreate
@@ -88,55 +94,48 @@ class HookEntry : IXposedHookLoadPackage {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val context = param.thisObject as? Context ?: return
                         initEngineAndReceiver(context, context.classLoader, "MobileQQ.onCreate")
+                        hookSplashActivity(context.classLoader)
                         QQSettingInjector.inject(context.classLoader)
                     }
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] Hook MobileQQ.onCreate 异常: ${t.message}")
+            HookLog.log(TAG, "Hook MobileQQ.onCreate 异常: ${t.message}")
         }
 
-        // 挂钩 3: Activity.onCreate (界面层最高优先级，动态注入设置项提供者)
-        try {
-            XposedHelpers.findAndHookMethod(
-                Activity::class.java,
-                "onCreate",
-                Bundle::class.java,
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val activity = param.thisObject as? Activity ?: return
-                        if (activity.packageName == TARGET_PACKAGE) {
-                            initEngineAndReceiver(activity, activity.classLoader, "Activity.onCreate: ${activity.javaClass.simpleName}")
-                            QQSettingInjector.inject(activity.classLoader)
-                            globalEngine?.startBackgroundLoop(activity.applicationContext)
-                        }
-                    }
-                }
-            )
-        } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] Hook Activity.onCreate 异常: ${t.message}")
-        }
+        // 挂钩 3: 仅针对 QQ 主界面 SplashActivity.onResume 触发保活与会话校准，坚决不挂钩全局 Activity 基类
+        hookSplashActivity(lpparam.classLoader)
+    }
 
-        // 挂钩 4: Activity.onResume (切回前台保活触发)
+    private fun hookSplashActivity(classLoader: ClassLoader) {
+        if (isSplashHooked) return
         try {
+            val splashCls = classLoader.loadClass("com.tencent.mobileqq.activity.SplashActivity")
             XposedHelpers.findAndHookMethod(
-                Activity::class.java,
+                splashCls,
                 "onResume",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val activity = param.thisObject as? Activity ?: return
                         if (activity.packageName == TARGET_PACKAGE) {
-                            globalEngine?.verifyAndSyncAccountSession(activity.applicationContext)
-                            globalEngine?.startBackgroundLoop(activity.applicationContext)
+                            val appContext = activity.applicationContext ?: activity
+                            globalEngine?.verifyAndSyncAccountSession(appContext)
+                            globalEngine?.startBackgroundLoop(appContext)
                         }
                     }
                 }
             )
+            isSplashHooked = true
+            HookLog.log(TAG, "已成功挂钩 SplashActivity.onResume 主界面保活")
         } catch (_: Throwable) {}
     }
 
     private fun initEngineAndReceiver(context: Context, classLoader: ClassLoader, from: String) {
         val appContext = context.applicationContext ?: context
+        try {
+            val prefs = appContext.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+            HookLog.isDebugEnabled = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
+        } catch (_: Throwable) {}
 
         if (globalEngine == null || globalBridge?.isReady != true) {
             try {
@@ -150,16 +149,16 @@ class HookEntry : IXposedHookLoadPackage {
                     } else {
                         globalEngine?.updateBridge(bridge)
                     }
-                    XposedBridge.log("[$TAG] 冒险探索发包内核就绪 (来源: $from, 类: ${QQPetDirectBridge.resolvedDelegateClass?.name})")
+                    HookLog.log(TAG, "冒险探索发包内核就绪 (来源: $from, 类: ${QQPetDirectBridge.resolvedDelegateClass?.name})")
                 } else if (globalEngine == null) {
                     globalBridge = bridge
                     globalEngine = PetAdventureEngine(bridge).apply {
                         reloadConfig(appContext)
                     }
-                    XposedBridge.log("[$TAG] 发包内核暂未就绪，等待后续分包触发 (来源: $from)")
+                    HookLog.log(TAG, "发包内核暂未就绪，等待后续分包触发 (来源: $from)")
                 }
             } catch (t: Throwable) {
-                XposedBridge.log("[$TAG] 初始化发包内核失败: ${t.message}")
+                HookLog.log(TAG, "初始化发包内核失败: ${t.message}")
             }
         }
 
@@ -167,13 +166,13 @@ class HookEntry : IXposedHookLoadPackage {
         try {
             PacketSniffer.install(classLoader, appContext)
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] 启动 PacketSniffer 异常: ${t.message}")
+            HookLog.log(TAG, "启动 PacketSniffer 异常: ${t.message}")
         }
 
         if (!isReceiverRegistered) {
             registerAdventureReceiver(appContext)
             isReceiverRegistered = true
-            XposedBridge.log("[$TAG] 跨进程广播接收器注册就绪 (来源: $from)")
+            HookLog.log(TAG, "跨进程广播接收器注册就绪 (来源: $from)")
             globalEngine?.sendReadySignal(appContext)
         }
 
@@ -187,13 +186,13 @@ class HookEntry : IXposedHookLoadPackage {
                     val isLogin = XposedHelpers.callMethod(runtime, "isLogin") as? Boolean ?: false
                     if (isLogin) {
                         val uin = XposedHelpers.callMethod(runtime, "getCurrentAccountUin") as? String
-                        XposedBridge.log("[$TAG] QQ 账号已登录: UIN=$uin，自动启动后台常驻探险轮询！")
+                        HookLog.log(TAG, "QQ 账号已登录: UIN=$uin，自动启动后台常驻探险轮询！")
                         globalEngine?.startBackgroundLoop(appContext)
                     }
                 }
             }
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] 检查登录状态异常: ${t.message}")
+            HookLog.log(TAG, "检查登录状态异常: ${t.message}")
         }
     }
 
@@ -226,8 +225,13 @@ class HookEntry : IXposedHookLoadPackage {
                            val workDuration = if (intent.hasExtra("extra_work_duration")) intent.getIntExtra("extra_work_duration", 0) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_WORK_DURATION, 0)
                            val careEnergyThreshold = if (intent.hasExtra("extra_care_energy_threshold")) intent.getIntExtra("extra_care_energy_threshold", 60) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
                            val careCleanThreshold = if (intent.hasExtra("extra_care_clean_threshold")) intent.getIntExtra("extra_care_clean_threshold", 60) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
+                           val humanLikeSleep = if (intent.hasExtra("extra_human_like_sleep")) intent.getBooleanExtra("extra_human_like_sleep", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+                           val hideSetting = if (intent.hasExtra("extra_hide_qq_setting_entry")) intent.getBooleanExtra("extra_hide_qq_setting_entry", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+                           val debugLog = if (intent.hasExtra("extra_debug_log")) intent.getBooleanExtra("extra_debug_log", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_DEBUG_LOG, false)
 
-                           globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold)
+                           HookLog.isDebugEnabled = debugLog
+
+                           globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, hideSetting, debugLog)
                            try {
                                val editor = prefs.edit()
                                if (intent.hasExtra("extra_study")) editor.putBoolean("key_study", study)
@@ -247,18 +251,21 @@ class HookEntry : IXposedHookLoadPackage {
                                if (intent.hasExtra("extra_work_duration")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_WORK_DURATION, workDuration)
                                if (intent.hasExtra("extra_care_energy_threshold")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, careEnergyThreshold)
                                if (intent.hasExtra("extra_care_clean_threshold")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, careCleanThreshold)
+                               if (intent.hasExtra("extra_human_like_sleep")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, humanLikeSleep)
+                               if (intent.hasExtra("extra_hide_qq_setting_entry")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, hideSetting)
+                               if (intent.hasExtra("extra_debug_log")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_DEBUG_LOG, debugLog)
                                editor.commit()
                            } catch (_: Throwable) {}
-                          XposedBridge.log("[$TAG] 跨进程配置更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold")
-                           globalEngine?.sendLog(ctx, "⚙️ [配置已同步] 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold")
+                          HookLog.log(TAG, "跨进程配置更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 隐身=$hideSetting, 调试日志=$debugLog")
+                           globalEngine?.sendLog(ctx, "⚙️ [配置已同步] 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 阶段=$schoolStage, 工种=$workType")
                        }
                         ACTION_TRIGGER_ACTION -> {
                             val action = intent.getStringExtra(PetAdventureEngine.EXTRA_ACTION) ?: "cycle"
-                            XposedBridge.log("[$TAG] 收到动作指令: $action")
+                            HookLog.log(TAG, "收到动作指令: $action")
                             globalEngine?.runAction(ctx, action)
                         }
                         ACTION_TRIGGER_ADVENTURE -> {
-                            XposedBridge.log("[$TAG] 收到一键测试冒险探索指令！")
+                            HookLog.log(TAG, "收到一键测试冒险探索指令！")
                             globalEngine?.runAction(ctx, "adventure")
                         }
                     }
@@ -269,9 +276,9 @@ class HookEntry : IXposedHookLoadPackage {
             } else {
                 context.registerReceiver(receiver, filter)
             }
-            XposedBridge.log("[$TAG] 广播接收器注册成功")
+            HookLog.log(TAG, "广播接收器注册成功")
         } catch (t: Throwable) {
-            XposedBridge.log("[$TAG] 注册广播失败: ${t.message}")
+            HookLog.log(TAG, "注册广播失败: ${t.message}")
         }
     }
 }
