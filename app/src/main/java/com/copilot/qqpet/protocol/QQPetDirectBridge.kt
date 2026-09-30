@@ -24,7 +24,8 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         val reward: String = "",
         val rewardExtra: String = "",
         val eventTips: String = "",
-        val isOwnerNeedCare: Boolean = false
+        val isOwnerNeedCare: Boolean = false,
+        val isFatigued: Boolean = false
     )
 
    data class SchoolStageInfo(
@@ -147,15 +148,25 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         var lastSelectEventsFatigueTip: String? = null
             private set
 
-        fun clearStaticRuntimeCache() {
-            cachedPetAttributes = null
-            lastFatigueDetected = false
-            lastFatigueTip = null
-            lastSelectEventsFatigued = false
-            lastSelectEventsFatigueTip = null
-        }
+       fun clearStaticRuntimeCache() {
+           cachedPetAttributes = null
+           lastFatigueDetected = false
+           lastFatigueTip = null
+           lastSelectEventsFatigued = false
+           lastSelectEventsFatigueTip = null
+       }
 
-        fun findDelegateClass(classLoader: ClassLoader): Pair<Class<*>?, Method?> {
+       fun containsFatigueKeyword(text: String?): Boolean {
+           if (text.isNullOrEmpty()) return false
+           return text.contains("疲惫") ||
+               text.contains("收益减少") ||
+               text.contains("收益降低") ||
+               text.contains("干不动") ||
+               text.contains("学不进去") ||
+               text.contains("%E7%96%B2%E6%83%AB", ignoreCase = true)
+       }
+
+       fun findDelegateClass(classLoader: ClassLoader): Pair<Class<*>?, Method?> {
             try {
                 val observerCls = Class.forName(OBSERVER_CLASS, true, classLoader)
                 val interfaceCls = Class.forName(INTERFACE_CLASS, true, classLoader)
@@ -398,9 +409,9 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
 
                val allStrings = ProtoWire.extractAllStrings(data)
                val matchedStr = listOf(tipContent, tipMarkdown, tipExtra).firstOrNull {
-                   it.contains("疲惫") || it.contains("收益减少")
+                   containsFatigueKeyword(it)
                } ?: allStrings.firstOrNull {
-                   it.contains("疲惫") || it.contains("收益减少")
+                   containsFatigueKeyword(it)
                }
 
                val fatigued = !matchedStr.isNullOrEmpty()
@@ -1028,6 +1039,8 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         careerType: Int = 0,
         callback: (code: Int, events: List<SelectEvent>, rawData: ByteArray?, errorMsg: String?) -> Unit
     ) {
+        lastSelectEventsFatigued = false
+        lastSelectEventsFatigueTip = null
         val msg = ProtoWire.message()
             .writeVarint(1, eventType)
             .writeString(2, petId)
@@ -1058,30 +1071,36 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                     val rewardExtra = ProtoWire.firstString(itemBytes, 9) ?: ""
                     val eventTips = ProtoWire.firstString(itemBytes, 17) ?: ""
                     val isOwnerNeedCare = (ProtoWire.firstVarint(itemBytes, 18) ?: 0L) != 0L
+                    val itemFatigueHit = listOf(eventTips, rewardExtra, reward).firstOrNull {
+                        containsFatigueKeyword(it)
+                    }
+                    val itemIsFatigued = itemFatigueHit != null
                     if (foundFatigueTip == null) {
-                        val hit = listOf(rewardExtra, eventTips, reward).firstOrNull {
-                            it.contains("疲惫") || it.contains("收益减少")
-                        }
-                        if (hit != null) foundFatigueTip = hit
+                        if (itemFatigueHit != null) foundFatigueTip = itemFatigueHit
                     }
                     Log.d(TAG, "[$eventType-EventItem] name='$name', sub=$sub, can=$can, level=$level, cost='$cost', time='$costTime', reward='$reward', extra='$rewardExtra', tips='$eventTips', needCare=$isOwnerNeedCare")
                    if (name.isNotEmpty() && sub > 0L) {
-                       list.add(SelectEvent(name, sub, can, level, cost, costTime, reward, rewardExtra, eventTips, isOwnerNeedCare))
+                       list.add(SelectEvent(name, sub, can, level, cost, costTime, reward, rewardExtra, eventTips, isOwnerNeedCare, itemIsFatigued))
                    }
                }
                if (foundFatigueTip == null) {
                     val rawTip = ProtoWire.extractAllStrings(data).firstOrNull {
-                        it.contains("疲惫") || it.contains("收益减少")
+                        containsFatigueKeyword(it)
                     }
-                    if (rawTip != null) {
-                        foundFatigueTip = rawTip
-                            .replace(Regex("!\\[[^\\]]*\\]\\([^)]*\\)"), "")
-                            .replace(Regex("\\[[^\\]]*\\]\\([^)]*\\)"), "")
-                            .replace(Regex("\\s+"), " ")
-                            .trim()
-                    }
+                   if (rawTip != null) {
+                       foundFatigueTip = rawTip
+                           .replace(Regex("!\\[[^\\]]*\\]\\([^)]*\\)"), "")
+                           .replace(Regex("\\[[^\\]]*\\]\\([^)]*\\)"), "")
+                           .replace(Regex("\\s+"), " ")
+                           .trim()
+                   }
+              }
+               // 仅当列表内所有可选事件均带疲惫提示（或列表为空但回包全局含疲惫提示）时才标记全局疲惫
+               lastSelectEventsFatigued = if (list.isNotEmpty()) {
+                   list.all { it.isFatigued }
+               } else {
+                   !foundFatigueTip.isNullOrEmpty()
                }
-               lastSelectEventsFatigued = !foundFatigueTip.isNullOrEmpty()
                 lastSelectEventsFatigueTip = foundFatigueTip
                 Log.i(TAG, "querySelectEvents 回包: eventType=$eventType, stage=$schoolStage, career=$careerType, 解析到 ${list.size} 个可用事件")
                 callback(0, list, data, null)

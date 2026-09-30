@@ -1,5 +1,6 @@
 package com.copilot.qqpet.engine
 
+import com.copilot.qqpet.protocol.QQPetDirectBridge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -44,5 +45,15 @@ class StealthSchedulerTest {
         assertTrue(StealthScheduler.isLogAllowed(debugEnabled = true))
         assertFalse(StealthScheduler.shouldInjectSettingCard(hideSettingEntry = true))
         assertTrue(StealthScheduler.shouldInjectSettingCard(hideSettingEntry = false))
+    }
+
+    @Test
+    fun testContainsFatigueKeyword() {
+        assertTrue(QQPetDirectBridge.containsFatigueKeyword("疲惫，收益减少"))
+        assertTrue(QQPetDirectBridge.containsFatigueKeyword("我今天学习/打工太久，要学不进去啦"))
+        assertTrue(QQPetDirectBridge.containsFatigueKeyword("我今天学习/打工太久，干不动活啦"))
+        assertTrue(QQPetDirectBridge.containsFatigueKeyword("mqqapi://markdown/node?nodeType=petTips&text=%E7%96%B2%E6%83%AB"))
+        assertFalse(QQPetDirectBridge.containsFatigueKeyword("魅力+7，正常收益"))
+        assertFalse(QQPetDirectBridge.containsFatigueKeyword(null))
     }
 }
