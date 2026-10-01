@@ -738,7 +738,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        prefFriendCareEnergyThreshold = friendCareEnergyThreshold
        prefFriendCareCleanThreshold = friendCareCleanThreshold
        prefPkBlacklistUinsCsv = pkBlacklistUinsCsv
-       prefHiredRecallProgress = hiredRecallProgress
+       prefHiredRecallProgress = hiredRecallProgress; WakeLockHelper.wakeUpImmediately()
        com.copilot.qqpet.hook.HookLog.isDebugEnabled = debugLog
        Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold, 好友照料=$friendCareEnabled($friendCareEnergyThreshold/$friendCareCleanThreshold), 雇佣召回=${if (hiredRecallProgress > 0) "${hiredRecallProgress}%" else "关闭"}")
    }
@@ -826,7 +826,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 val secs = rem % 60
                 val taskType = when {
                     storyStatus.storyId.startsWith("6100") -> "进阶修习中"
-                    storyStatus.storyId.startsWith("6400") -> "小镇打工中"
+                    storyStatus.storyId?.startsWith("6400") == true -> "小镇打工中"
                     storyStatus.storyId.startsWith("6700") -> "森林探险中"
                     else -> "任务执行中"
                 }
@@ -849,15 +849,17 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 // 2.3 检查是否处于好友被雇佣打工中，若开启「被雇佣提前召回」且进度达标，立即执行收益抢跑召回
                 val totalSec = storyStatus.total ?: 0L
                 val curProgress = calculateHiredProgress(totalSec, rem)
-                if (prefHiredRecallProgress > 0 && totalSec > 0L) {
+                val isWorkStory = storyStatus.storyId?.startsWith("6400") == true
+                if (prefHiredRecallProgress > 0 && totalSec > 0L && isWorkStory) {
                     val processInfo = queryProcessStoryInfoAwait(storyStatus.storyId, petId)
-                    if (processInfo.code == 0 && processInfo.isHired) {
+                    val isHiredOrWork = (processInfo.code == 0 && processInfo.isHired) || isWorkStory
+                    if (isHiredOrWork) {
                         val targetThresh = prefHiredRecallProgress
                         val progressInt = curProgress.toInt()
-                        currentStatusText = "被雇佣中 · 进度 ${progressInt}% · 目标 ${targetThresh}%"
-                        sendLog(context, "💼 [被雇佣监控] 小宠正处于好友雇佣打工中，当前进度: ${progressInt}% (剩余 ${mins}分${secs}秒)，设定召回阈值: ${targetThresh}%")
+                        currentStatusText = "打工中 · 进度 ${progressInt}% · 目标 ${targetThresh}%"
+                        sendLog(context, "💼 [打工召回监控] 小宠正处于小镇打工/被雇佣中，当前进度: ${progressInt}% (剩余 ${mins}分${secs}秒)，设定召回阈值: ${targetThresh}%")
                         if (shouldTriggerHiredRecall(curProgress, targetThresh)) {
-                            sendLog(context, "💰 [雇佣收益抢跑] 当前进度 ${progressInt}% 已达到设定目标 ${targetThresh}%！正在执行提前召回以抢得满额基础工资与最高增益分成...")
+                            sendLog(context, "💰 [雇佣收益抢跑] 当前打工进度 ${progressInt}% 已达到设定目标 ${targetThresh}%！正在执行提前召回以抢得满额基础工资与最高增益分成...")
                             val (rCode, rErr) = recallStoryAwait(storyStatus.storyId, petId)
                             if (rCode == 0) {
                                 sendLog(context, "🎉 [提前召回成功] 宠物已提前回家，正在领取雇佣收益...")
@@ -879,7 +881,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 }
 
                 // 2.5 若开启「疲惫时自动转冒险」，且当前正在学习(6100)或打工(6400)，实时检测是否带有疲惫减益 Buff
-                if (enableFatigueToAdventure && (storyStatus.storyId.startsWith("6100") || storyStatus.storyId.startsWith("6400"))) {
+                if (enableFatigueToAdventure && (storyStatus.storyId.startsWith("6100") || storyStatus.storyId?.startsWith("6400") == true)) {
                     val fatigueRes = queryProcessStoryInfoAwait(storyStatus.storyId, petId)
                     if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
                         val switched = handleFatigueSwitchToAdventure(
@@ -1050,13 +1052,17 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            val rem = storyStatus.remaining ?: 30L
            val total = storyStatus.total ?: 0L
            var sleepSec = StealthScheduler.calculateTaskSleepSeconds(rem, prefHumanLikeSleep)
-           // 若小宠正在被雇佣且开启了提前召回，休眠时间对齐召回阈值点，避免睡过头
-           if (prefHiredRecallProgress > 0 && total > 0L) {
+           // 若小宠正在打工且开启了提前召回，休眠时间必须精准对齐召回阈值点，达标后绝不可死睡
+           if (prefHiredRecallProgress > 0 && total > 0L && storyStatus.storyId?.startsWith("6400") == true) {
                val targetElapsedSec = (total * prefHiredRecallProgress) / 100L
                val currentElapsedSec = total - rem
                val neededSec = targetElapsedSec - currentElapsedSec
                if (neededSec > 0L) {
+                   // 未到阈值，睡到目标点（15~120秒微调），避免睡过头
                    sleepSec = neededSec.coerceIn(15L, 120L)
+               } else {
+                   // 已达到或超过设定阈值！立即采用 10~20 秒拟人微休快速执行召回，绝不回退至数小时长沉睡
+                   sleepSec = if (prefHumanLikeSleep) kotlin.random.Random.nextLong(10L, 21L) else 10L
                }
            }
            val minText = String.format(java.util.Locale.CHINA, "%.1f", sleepSec / 60.0)

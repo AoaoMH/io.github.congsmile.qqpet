@@ -471,8 +471,9 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                     TAG,
                     "queryProcessStoryInfo 回包: storyId=$storyId, eventType=$eventType, fatigued=$fatigued, tip='$displayTip', rawTip=(content='$tipContent', md='$tipMarkdown')"
                 )
-                val isHired = allStrings.any { s ->
+                val isHired = (eventType == 6400) || allStrings.any { s ->
                     s.contains("被雇佣") || s.contains("雇佣者") || s.contains("被雇佣者") || s.contains("基础工资") || s.contains("加成奖金") || s.contains("可获得基础工资")
+                            || s.contains("icon/1776409721409")
                 }
                 callback(ProcessStoryFatigueResult(0, fatigued, displayTip, eventType, null, isHired))
             } else {

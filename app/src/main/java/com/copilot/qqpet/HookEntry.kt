@@ -312,7 +312,7 @@ class HookEntry : IXposedHookLoadPackage {
                             editor.commit()
                         } catch (_: Throwable) {}
                           HookLog.log(TAG, "跨进程配置更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 隐身=$hideSetting, 调试日志=$debugLog")
-                           globalEngine?.sendLog(ctx, "⚙️ [配置已同步] 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 阶段=$schoolStage, 工种=$workType, 雇佣召回=${if (hiredRecallProgress > 0) "${hiredRecallProgress}%" else "关闭"}")
+                           globalEngine?.sendLog(ctx, "⚙️ [配置已同步] 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 阶段=$schoolStage, 工种=$workType, 雇佣召回=${if (hiredRecallProgress > 0) "${hiredRecallProgress}%" else "关闭"}"); com.copilot.qqpet.engine.WakeLockHelper.wakeUpImmediately()
                        }
                         ACTION_TRIGGER_ACTION -> {
                             val action = intent.getStringExtra(PetAdventureEngine.EXTRA_ACTION) ?: "cycle"
