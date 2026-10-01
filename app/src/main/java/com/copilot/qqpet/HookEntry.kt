@@ -15,6 +15,11 @@ import com.copilot.qqpet.hook.QQSettingInjector
 import com.copilot.qqpet.protocol.PacketSniffer
 import com.copilot.qqpet.protocol.QQPetDirectBridge
 import com.copilot.qqpet.ui.PreferencesHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XC_MethodReplacement
@@ -38,6 +43,8 @@ class HookEntry : IXposedHookLoadPackage {
         @Volatile
         private var isSplashHooked = false
         private var isReceiverRegistered = false
+        @Volatile
+        private var loginPollJob: Job? = null
         @Volatile
         var globalEngine: PetAdventureEngine? = null
         @Volatile
@@ -176,24 +183,45 @@ class HookEntry : IXposedHookLoadPackage {
             globalEngine?.sendReadySignal(appContext)
         }
 
-        // 检查登录状态并启动后台循环
+        // 检查登录状态并启动后台循环（支持异步重试探测）
+        checkLoginAndStartLoop(appContext, classLoader, from)
+    }
+
+    private fun checkLoginAndStartLoop(appContext: Context, classLoader: ClassLoader, from: String) {
+        // 1. 即时检测：如果此时已登录，直接拉起
+        if (tryStartLoopIfLoggedIn(appContext, classLoader, from)) {
+            return
+        }
+
+        // 2. 异步轮询探测：宿主冷启动时，AccountRuntime 鉴权模块通常在 onCreate 之后数秒异步就绪
+        if (loginPollJob?.isActive == true) return
+        loginPollJob = CoroutineScope(Dispatchers.IO).launch {
+            val retryDelays = longArrayOf(1500L, 3000L, 5000L, 8000L, 12000L, 20000L, 30000L)
+            for (delayMs in retryDelays) {
+                delay(delayMs)
+                if (PetAdventureEngine.isLoopRunning) break
+                val started = tryStartLoopIfLoggedIn(appContext, classLoader, "异步复检:$from")
+                if (started) break
+            }
+        }
+    }
+
+    private fun tryStartLoopIfLoggedIn(appContext: Context, classLoader: ClassLoader, from: String): Boolean {
         try {
             val mobileQQClass = XposedHelpers.findClass("mqq.app.MobileQQ", classLoader)
-            val sMobileQQ = XposedHelpers.getStaticObjectField(mobileQQClass, "sMobileQQ")
-            if (sMobileQQ != null) {
-                val runtime = XposedHelpers.callMethod(sMobileQQ, "peekAppRuntime")
-                if (runtime != null) {
-                    val isLogin = XposedHelpers.callMethod(runtime, "isLogin") as? Boolean ?: false
-                    if (isLogin) {
-                        val uin = XposedHelpers.callMethod(runtime, "getCurrentAccountUin") as? String
-                        HookLog.log(TAG, "QQ 账号已登录: UIN=$uin，自动启动后台常驻探险轮询！")
-                        globalEngine?.startBackgroundLoop(appContext)
-                    }
-                }
+            val sMobileQQ = XposedHelpers.getStaticObjectField(mobileQQClass, "sMobileQQ") ?: return false
+            val runtime = XposedHelpers.callMethod(sMobileQQ, "peekAppRuntime") ?: return false
+            val isLogin = XposedHelpers.callMethod(runtime, "isLogin") as? Boolean ?: false
+            if (isLogin) {
+                val uin = XposedHelpers.callMethod(runtime, "getCurrentAccountUin") as? String
+                HookLog.log(TAG, "QQ 账号已登录: UIN=$uin (来源: $from)，自动启动后台常驻探险轮询！")
+                globalEngine?.startBackgroundLoop(appContext)
+                return true
             }
         } catch (t: Throwable) {
             HookLog.log(TAG, "检查登录状态异常: ${t.message}")
         }
+        return false
     }
 
     private fun registerAdventureReceiver(context: Context) {

@@ -644,16 +644,21 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             sendLog(context, "🤖 [后台循环] Q宠全能巡检协程已激活 (Round-Robin 均衡轮换模式)！")
             try {
                 while (isLoopRunning) {
-                    try {
-                        executeMasterCycle(context)
-                   } catch (t: Throwable) {
-                       currentStatusText = "巡检异常，稍后重试"
-                       val errDelay = StealthScheduler.calculateIdleCycleDelayMillis(prefHumanLikeSleep)
-                       val errSec = errDelay / 1000L
-                       sendLog(context, "⚠️ [异常] 巡检报错: ${t.message}，拟人休眠 ${errSec} 秒后重试")
-                       delay(errDelay)
-                   }
-               }
+                    val nextSleepMs = try {
+                        WakeLockHelper.withExecutionWakeLock(context, "MasterCycle", 40_000L) {
+                            executeMasterCycle(context)
+                        }
+                    } catch (t: Throwable) {
+                        currentStatusText = "巡检异常，稍后重试"
+                        val errDelay = StealthScheduler.calculateIdleCycleDelayMillis(prefHumanLikeSleep)
+                        val errSec = errDelay / 1000L
+                        sendLog(context, "⚠️ [异常] 巡检报错: ${t.message}，拟人休眠 ${errSec} 秒后重试")
+                        errDelay
+                    }
+
+                    if (!isLoopRunning) break
+                    WakeLockHelper.sleepWithAlarmWakeup(context, nextSleepMs)
+                }
             } finally {
                 isLoopRunning = false
                 Log.w(TAG, "后台循环已退出，重置 isLoopRunning 为 false")
@@ -661,13 +666,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         }
     }
 
-    private suspend fun executeMasterCycle(context: Context) {
+    private suspend fun executeMasterCycle(context: Context): Long {
         reloadConfig(context)
         if (!bridge.isReady) {
             currentStatusText = "发包代理连接中..."
             sendLog(context, "⏳ [挂起] QQ 内部发包代理尚未就绪，等待 10 秒...")
-            delay(10 * 1000L)
-            return
+            return 10 * 1000L
         }
 
         // 1. 获取宠物 ID
@@ -679,8 +683,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             if (fetchedId.isNullOrEmpty()) {
                 currentStatusText = "获取宠物 ID 失败 (code=$codePet)"
                 sendLog(context, "❌ [巡检] 获取宠物 ID 失败 (code=$codePet)，30 秒后重试")
-                delay(30 * 1000L)
-                return
+                return 30 * 1000L
             }
             saveScopedPetId(context, fetchedId)
             petId = fetchedId
@@ -729,8 +732,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                             tipText = fatigueRes.tipText
                         )
                         if (switched) {
-                            delay(5 * 1000L)
-                            return
+                            return 5 * 1000L
                         }
                     }
                 }
@@ -874,8 +876,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            val sleepSec = StealthScheduler.calculateTaskSleepSeconds(rem, prefHumanLikeSleep)
            val minText = String.format(java.util.Locale.CHINA, "%.1f", sleepSec / 60.0)
            sendLog(context, "⏳ [在途任务] 宠物正在进行任务中，动态拟人休眠 ${sleepSec} 秒 (~${minText} 分钟)")
-           delay(sleepSec * 1000L)
-           return
+           return sleepSec * 1000L
        }
 
         // 5. 【Round-Robin 智能轮转核心】在已启用的任务中无缝轮换，杜绝互斥冲突
@@ -887,8 +888,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         if (availableTasks.isEmpty()) {
             currentStatusText = "外出开关已全部关闭 · 静默待命"
             sendLog(context, "😴 [轮询] 当前外出项目（打工/学习/探险）全被关闭，10 分钟后再次巡检")
-            delay(10 * 60 * 1000L)
-            return
+            return 10 * 60 * 1000L
         }
 
         // 取出当前轮次的任务
@@ -899,15 +899,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             "study" -> {
                 val ok = dispatchAdaptiveStudy(context, petId)
                 if (ok) {
-                    delay(5 * 1000L)
-                    return
+                    return 5 * 1000L
                 }
             }
             "work" -> {
                 val ok = dispatchAdaptiveWork(context, petId)
                 if (ok) {
-                    delay(5 * 1000L)
-                    return
+                    return 5 * 1000L
                 }
             }
             "adventure" -> {
@@ -921,8 +919,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
                         currentStatusText = "野外探险中 · 搜寻秘宝"
                         sendLog(context, "🎉 [探险成功] 顺利启程！StoryID: $storyId")
-                        delay(5 * 1000L)
-                        return
+                        return 5 * 1000L
                     } else if (codeAdv == 135075) {
                         sendLog(context, "🔄 [探险自愈] 服务端返回 135075，正在校准当前账号宠物 ID 与在途状态...")
                         recoverFrom135075(context)
@@ -939,7 +936,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        val minText = String.format(java.util.Locale.CHINA, "%.1f", sec / 60.0)
        currentStatusText = "等待下次调度 (~${minText}分钟)"
        sendLog(context, "😴 [拟人休眠] 当前轮次完成，拟人休眠 ${sec} 秒 (~${minText} 分钟) 后继续自适应调度")
-       delay(delayMillis)
+       return delayMillis
    }
 
     /**
