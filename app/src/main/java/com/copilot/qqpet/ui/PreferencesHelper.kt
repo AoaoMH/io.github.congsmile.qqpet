@@ -34,6 +34,7 @@ object PreferencesHelper {
   const val KEY_FRIEND_CARE_ENERGY_THRESHOLD = "key_friend_care_energy_threshold"
   const val KEY_FRIEND_CARE_CLEAN_THRESHOLD = "key_friend_care_clean_threshold"
   const val KEY_AUTO_PK = "key_auto_pk"
+  const val KEY_PK_BLACKLIST_UINS = "key_pk_blacklist_uins"
   const val KEY_PK_DAILY_DATE = "key_pk_daily_date"
   const val KEY_PK_DAILY_COUNT = "key_pk_daily_count"
 

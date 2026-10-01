@@ -1318,7 +1318,59 @@ object QQSettingDialog {
      addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
       addSimpleToggleRow(dailyCard, "自动领取好友福袋", "自动扫描好友小窝并拆取掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
       addSimpleToggleRow(dailyCard, "疲惫时自动转冒险", "检测到疲惫收益减少时，取消打工和学习转去冒险直至恢复", PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true, false)
+
       addSimpleToggleRow(dailyCard, "自动对决挑战 (PK)", "每日自动与好友或访客PK 10场，三维筛查稳赢挑战，冷却1~3分钟", PreferencesHelper.KEY_AUTO_PK, false, false)
+
+      val pkBlacklistSummaryTv = TextView(context).apply {
+          text = formatPkBlacklistSummary(context)
+          textSize = 12f
+          setTextColor(colors.secondaryText)
+          setPadding(0, dp(context, 2), 0, 0)
+      }
+      val pkBlacklistRow = LinearLayout(context).apply {
+          orientation = LinearLayout.HORIZONTAL
+          gravity = Gravity.CENTER_VERTICAL
+          background = GradientDrawable().apply {
+              setColor(if (colors.isNight) Color.parseColor("#252528") else Color.parseColor("#F6F6F9"))
+              cornerRadius = dp(context, 9).toFloat()
+          }
+          setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10))
+          layoutParams = LinearLayout.LayoutParams(
+              LinearLayout.LayoutParams.MATCH_PARENT,
+              LinearLayout.LayoutParams.WRAP_CONTENT
+          ).apply {
+              setMargins(0, dp(context, 4), 0, dp(context, 4))
+          }
+          applyTouchSpringEffect(this)
+          setOnClickListener {
+              showPkBlacklistDialog(context, colors, prefs, engine) {
+                  pkBlacklistSummaryTv.text = formatPkBlacklistSummary(context)
+              }
+          }
+      }
+      val pkBlacklistCol = LinearLayout(context).apply {
+          orientation = LinearLayout.VERTICAL
+          layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+              setMargins(0, 0, dp(context, 8), 0)
+          }
+      }
+      val pkBlacklistTitle = TextView(context).apply {
+          text = "PK 免战黑名单 (支持搜索与好友/访客勾选)"
+          textSize = 13.5f
+          typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+          setTextColor(colors.actionBlueText)
+      }
+      pkBlacklistCol.addView(pkBlacklistTitle)
+      pkBlacklistCol.addView(pkBlacklistSummaryTv)
+      val pkBlacklistAction = TextView(context).apply {
+          text = "管理 ›"
+          textSize = 13.5f
+          typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+          setTextColor(colors.actionBlueText)
+      }
+      pkBlacklistRow.addView(pkBlacklistCol)
+      pkBlacklistRow.addView(pkBlacklistAction)
+      dailyCard.addView(pkBlacklistRow)
       addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
       addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, false)
        addSimpleToggleRow(dailyCard, "动态拟人休眠", "随机1~3分钟非固定周期休眠，有效避免行为时序聚类识别", PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true, false)
@@ -2251,6 +2303,478 @@ object QQSettingDialog {
         dialog.show()
     }
 
+    private fun formatPkBlacklistSummary(context: Context): String {
+        val blacklistUins = PetAdventureEngine.loadSavedPkBlacklistUins(context)
+        if (blacklistUins.isEmpty()) {
+            return "未设置免战名单 (全部碾压对手均可对决 · 点击管理黑名单)"
+        }
+        val cachedFriends = PetAdventureEngine.loadCachedHireableFriends(context)
+        val matchedNames = blacklistUins.map { uin ->
+            val f = cachedFriends.find { it.uin == uin }
+            if (f != null && f.friendNick.isNotBlank()) f.friendNick else uin.toString()
+        }
+        val preview = matchedNames.take(3).joinToString("、")
+        val more = if (matchedNames.size > 3) " 等" else ""
+        return "已拉黑 ${blacklistUins.size} 位对手 ($preview$more) · 自动跳过免战"
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun showPkBlacklistDialog(
+        context: Context,
+        colors: ThemeColors,
+        prefs: android.content.SharedPreferences,
+        engine: PetAdventureEngine?,
+        onUpdated: () -> Unit
+    ) {
+        val dialog = Dialog(context)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        val blacklistUins = LinkedHashSet<Long>(PetAdventureEngine.loadSavedPkBlacklistUins(context))
+
+        class TargetItem(
+            val uin: Long,
+            var nick: String,
+            var petNick: String,
+            val role: String,
+            var totalAttr: Long = 0L
+        )
+
+        val candidates = mutableListOf<TargetItem>()
+        val seen = mutableSetOf<Long>()
+
+        val cachedFriends = PetAdventureEngine.loadCachedHireableFriends(context)
+        for (f in cachedFriends) {
+            if (f.uin <= 0L || seen.contains(f.uin)) continue
+            seen.add(f.uin)
+            candidates.add(
+                TargetItem(
+                    uin = f.uin,
+                    nick = f.friendNick.ifEmpty { "好友_${f.uin}" },
+                    petNick = f.petNick.ifEmpty { "小宠" },
+                    role = "好友",
+                    totalAttr = f.totalAttr
+                )
+            )
+        }
+
+        for (u in blacklistUins) {
+            if (u > 0L && !seen.contains(u)) {
+                seen.add(u)
+                candidates.add(
+                    TargetItem(
+                        uin = u,
+                        nick = "自定义免战目标",
+                        petNick = "-",
+                        role = "已拉黑",
+                        totalAttr = 0L
+                    )
+                )
+            }
+        }
+
+        var searchQuery = ""
+
+        val rootCard = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(if (colors.isNight) Color.parseColor("#1C1C1E") else Color.WHITE)
+                cornerRadius = dp(context, 16).toFloat()
+                if (colors.isNight) {
+                    setStroke(1, colors.cardBorder)
+                }
+            }
+            setPadding(dp(context, 16), dp(context, 18), dp(context, 16), dp(context, 14))
+        }
+
+        val titleTv = TextView(context).apply {
+            text = "选择 PK 免战黑名单"
+            textSize = 17f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.primaryText)
+        }
+        val subtitleTv = TextView(context).apply {
+            text = "已勾选目标将绝对免战跳过，零发包防误打；未勾选且三维低于我方的对手正常挑战。"
+            textSize = 12.5f
+            setTextColor(colors.secondaryText)
+            setPadding(0, dp(context, 4), 0, dp(context, 12))
+        }
+        rootCard.addView(titleTv)
+        rootCard.addView(subtitleTv)
+
+        val searchBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(if (colors.isNight) Color.parseColor("#2C2C2E") else Color.parseColor("#F2F2F7"))
+                cornerRadius = dp(context, 10).toFloat()
+            }
+            setPadding(dp(context, 12), dp(context, 6), dp(context, 10), dp(context, 6))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, dp(context, 10))
+            }
+        }
+
+        val clearSearchBtn = TextView(context).apply {
+            text = "清空"
+            textSize = 12.5f
+            setTextColor(colors.actionBlueText)
+            setPadding(dp(context, 8), dp(context, 4), dp(context, 4), dp(context, 4))
+            visibility = View.GONE
+        }
+
+        val searchInput = EditText(context).apply {
+            hint = "搜索好友昵称、QQ 号或小宠名..."
+            textSize = 13.5f
+            setTextColor(colors.primaryText)
+            setHintTextColor(colors.secondaryText)
+            background = null
+            isSingleLine = true
+            inputType = InputType.TYPE_CLASS_TEXT
+            setPadding(0, dp(context, 4), 0, dp(context, 4))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        clearSearchBtn.setOnClickListener {
+            searchInput.setText("")
+        }
+        searchBar.addView(searchInput)
+        searchBar.addView(clearSearchBtn)
+        rootCard.addView(searchBar)
+
+        val statusRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 2), 0, dp(context, 2), dp(context, 8))
+        }
+        val statusInfoTv = TextView(context).apply {
+            text = "已拉黑 ${blacklistUins.size} 人 · 候选池共 ${candidates.size} 人"
+            textSize = 12f
+            setTextColor(colors.secondaryText)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        val clearSelectedBtn = TextView(context).apply {
+            text = "全不选"
+            textSize = 12.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.actionRedText)
+            setPadding(dp(context, 6), dp(context, 4), dp(context, 6), dp(context, 4))
+        }
+        val addManualBtn = TextView(context).apply {
+            text = "+ 输入QQ拉黑"
+            textSize = 12.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.actionBlueText)
+            setPadding(dp(context, 6), dp(context, 4), dp(context, 2), dp(context, 4))
+        }
+        statusRow.addView(statusInfoTv)
+        statusRow.addView(clearSelectedBtn)
+        statusRow.addView(addManualBtn)
+        rootCard.addView(statusRow)
+
+        rootCard.addView(View(context).apply {
+            setBackgroundColor(colors.dividerColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+        })
+
+        val listContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val screenHeight = context.resources.displayMetrics.heightPixels
+        val listScrollView = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (screenHeight * 0.44f).toInt()
+            )
+            addView(listContainer)
+        }
+        rootCard.addView(listScrollView)
+
+        fun persistSelection() {
+            PetAdventureEngine.savePkBlacklistUins(context, blacklistUins)
+            syncConfig(prefs, engine, context)
+            onUpdated()
+        }
+
+        fun renderList() {
+            listContainer.removeAllViews()
+            val q = searchQuery.trim()
+            val filtered = if (q.isEmpty()) {
+                candidates.toList()
+            } else {
+                candidates.filter { item ->
+                    item.nick.contains(q, ignoreCase = true) ||
+                        item.petNick.contains(q, ignoreCase = true) ||
+                        item.uin.toString().contains(q)
+                }
+            }
+
+            statusInfoTv.text = if (q.isNotEmpty()) {
+                "搜索到 ${filtered.size} 人 · 已拉黑 ${blacklistUins.size} 人"
+            } else {
+                "已拉黑 ${blacklistUins.size} 人 · 候选池共 ${candidates.size} 人"
+            }
+
+            if (filtered.isEmpty()) {
+                val emptyTv = TextView(context).apply {
+                    text = if (q.isNotEmpty()) {
+                        "未找到匹配「$q」的对象，可点击右上角「+ 输入QQ拉黑」直接添加"
+                    } else {
+                        "暂无候选好友，可点击右上角「+ 输入QQ拉黑」添加免战对象"
+                    }
+                    textSize = 13f
+                    setTextColor(colors.secondaryText)
+                    gravity = Gravity.CENTER
+                    setPadding(dp(context, 16), dp(context, 36), dp(context, 16), dp(context, 36))
+                }
+                listContainer.addView(emptyTv)
+                return
+            }
+
+            filtered.forEachIndexed { idx, item ->
+                val isBlocked = blacklistUins.contains(item.uin)
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(context, 4), dp(context, 11), dp(context, 4), dp(context, 11))
+                }
+
+                val textCol = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f).apply {
+                        setMargins(0, 0, dp(context, 10), 0)
+                    }
+                }
+
+                val nameTv = TextView(context).apply {
+                    text = "${item.nick} (${item.uin})"
+                    textSize = 14.5f
+                    typeface = Typeface.create("sans-serif-medium", if (isBlocked) Typeface.BOLD else Typeface.NORMAL)
+                    setTextColor(if (isBlocked) (if (colors.isNight) Color.parseColor("#FF453A") else Color.parseColor("#D70015")) else colors.primaryText)
+                }
+
+                val detailTv = TextView(context).apply {
+                    val rolePart = "[${item.role}]"
+                    val petPart = if (item.petNick.isNotBlank() && item.petNick != "-") " · 小宠: ${item.petNick}" else ""
+                    val attrPart = if (item.totalAttr > 0L) " · 战力 ${item.totalAttr}" else ""
+                    text = "$rolePart$petPart$attrPart"
+                    textSize = 12f
+                    setTextColor(colors.secondaryText)
+                    setPadding(0, dp(context, 2), 0, 0)
+                }
+                textCol.addView(nameTv)
+                textCol.addView(detailTv)
+
+                val checkBadge = TextView(context).apply {
+                    text = if (isBlocked) "🚫 免战" else "正常"
+                    textSize = 12f
+                    typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                    setTextColor(
+                        if (isBlocked) Color.WHITE
+                        else colors.secondaryText
+                    )
+                    setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5))
+                    background = GradientDrawable().apply {
+                        setColor(
+                            if (isBlocked) {
+                                if (colors.isNight) Color.parseColor("#FF453A") else Color.parseColor("#FF3B30")
+                            } else {
+                                if (colors.isNight) Color.parseColor("#2C2C2E") else Color.parseColor("#EBEBED")
+                            }
+                        )
+                        cornerRadius = dp(context, 8).toFloat()
+                    }
+                }
+
+                row.addView(textCol)
+                row.addView(checkBadge)
+                row.setOnClickListener {
+                    if (blacklistUins.contains(item.uin)) {
+                        blacklistUins.remove(item.uin)
+                    } else {
+                        blacklistUins.add(item.uin)
+                    }
+                    persistSelection()
+                    renderList()
+                }
+
+                listContainer.addView(row)
+                if (idx < filtered.size - 1) {
+                    listContainer.addView(View(context).apply {
+                        setBackgroundColor(colors.dividerColor)
+                        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+                    })
+                }
+            }
+        }
+
+        fun showManualAddDialog() {
+            val inputDialog = Dialog(context)
+            inputDialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            val inputCard = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    setColor(if (colors.isNight) Color.parseColor("#1C1C1E") else Color.WHITE)
+                    cornerRadius = dp(context, 14).toFloat()
+                }
+                setPadding(dp(context, 18), dp(context, 16), dp(context, 18), dp(context, 16))
+            }
+            val promptTv = TextView(context).apply {
+                text = "手动添加免战 QQ 号"
+                textSize = 16f
+                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                setTextColor(colors.primaryText)
+            }
+            val qqEdit = EditText(context).apply {
+                hint = "输入对方 QQ 号..."
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setTextColor(colors.primaryText)
+                setHintTextColor(colors.secondaryText)
+                textSize = 14f
+                setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8))
+                background = GradientDrawable().apply {
+                    setColor(if (colors.isNight) Color.parseColor("#2C2C2E") else Color.parseColor("#F2F2F7"))
+                    cornerRadius = dp(context, 8).toFloat()
+                }
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, dp(context, 12), 0, dp(context, 14))
+                }
+            }
+            val btnRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+            }
+            val cancelBtn = TextView(context).apply {
+                text = "取消"
+                textSize = 14f
+                setTextColor(colors.secondaryText)
+                setPadding(dp(context, 12), dp(context, 6), dp(context, 12), dp(context, 6))
+                setOnClickListener { inputDialog.dismiss() }
+            }
+            val okBtn = TextView(context).apply {
+                text = "确认免战"
+                textSize = 14f
+                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                setTextColor(colors.actionBlueText)
+                setPadding(dp(context, 12), dp(context, 6), dp(context, 4), dp(context, 6))
+                setOnClickListener {
+                    val rawUin = qqEdit.text.toString().trim().toLongOrNull()
+                    if (rawUin != null && rawUin > 0L) {
+                        blacklistUins.add(rawUin)
+                        if (candidates.none { it.uin == rawUin }) {
+                            candidates.add(0, TargetItem(rawUin, "手动免战号", "-", "手动免战"))
+                        }
+                        persistSelection()
+                        renderList()
+                        inputDialog.dismiss()
+                    } else {
+                        Toast.makeText(context, "请输入有效的纯数字 QQ 号", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            btnRow.addView(cancelBtn)
+            btnRow.addView(okBtn)
+            inputCard.addView(promptTv)
+            inputCard.addView(qqEdit)
+            inputCard.addView(btnRow)
+            inputDialog.setContentView(inputCard)
+            inputDialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            inputDialog.show()
+        }
+
+        addManualBtn.setOnClickListener {
+            showManualAddDialog()
+        }
+
+        clearSelectedBtn.setOnClickListener {
+            if (blacklistUins.isNotEmpty()) {
+                blacklistUins.clear()
+                persistSelection()
+                renderList()
+            }
+        }
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                searchQuery = s?.toString().orEmpty()
+                clearSearchBtn.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
+                renderList()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        val active = engine ?: HookEntry.globalEngine
+        if (active != null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val (code, visitors) = active.fetchLikeListAwait("")
+                    if (code == 0 && visitors.isNotEmpty()) {
+                        var added = false
+                        for (v in visitors) {
+                            if (v.uin > 0L && !seen.contains(v.uin)) {
+                                seen.add(v.uin)
+                                candidates.add(
+                                    TargetItem(
+                                        uin = v.uin,
+                                        nick = v.nick.ifEmpty { "访客_${v.uin}" },
+                                        petNick = "小宠",
+                                        role = "访客"
+                                    )
+                                )
+                                added = true
+                            }
+                        }
+                        if (added) {
+                            mainHandler.post { renderList() }
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+
+        rootCard.addView(View(context).apply {
+            setBackgroundColor(colors.dividerColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                setMargins(0, dp(context, 6), 0, dp(context, 10))
+            }
+        })
+
+        val doneBtn = TextView(context).apply {
+            text = "完成并保存"
+            textSize = 16f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(context, 11), 0, dp(context, 11))
+            background = GradientDrawable().apply {
+                setColor(colors.actionBlueText)
+                cornerRadius = dp(context, 10).toFloat()
+            }
+            applyTouchSpringEffect(this)
+            setOnClickListener {
+                persistSelection()
+                dialog.dismiss()
+            }
+        }
+        rootCard.addView(doneBtn)
+
+        renderList()
+
+        dialog.setContentView(rootCard)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            val width = (context.resources.displayMetrics.widthPixels * 0.90f).toInt()
+            setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setDimAmount(0.45f)
+            clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+            setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+        dialog.show()
+    }
+
     private fun getSchoolStageDesc(stage: Int): String {
         return when (stage) {
             1 -> "就读初级学园 · 初阶打底"
@@ -2348,10 +2872,11 @@ object QQSettingDialog {
      val friendCareEnergy = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
      val friendCareClean = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
       val autoPk = prefs.getBoolean(PreferencesHelper.KEY_AUTO_PK, false)
+      val pkBlacklistUinsCsv = PetAdventureEngine.loadSavedPkBlacklistUins(context).joinToString(",")
 
-      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk)
+      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv)
      if (engine != null && engine !== HookEntry.globalEngine) {
-          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk)
+          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv)
      }
      val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
@@ -2383,6 +2908,7 @@ object QQSettingDialog {
           putExtra("extra_friend_care_energy_threshold", friendCareEnergy)
           putExtra("extra_friend_care_clean_threshold", friendCareClean)
           putExtra("extra_auto_pk", autoPk)
+          putExtra("extra_pk_blacklist_uins", pkBlacklistUinsCsv)
      }
      context.sendBroadcast(intent)
    }

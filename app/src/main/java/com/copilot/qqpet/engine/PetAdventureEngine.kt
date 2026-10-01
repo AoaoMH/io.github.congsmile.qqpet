@@ -66,6 +66,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
       @Volatile var prefDebugLog = false
        @Volatile var enableHireFriend = true
        @Volatile var prefHireFriendUinsCsv = ""
+       @Volatile var prefPkBlacklistUinsCsv = ""
        @Volatile var cachedHireableFriends: List<QQPetDirectBridge.HireableFriend> = emptyList()
        @Volatile var enableFriendCare = false
        @Volatile var prefFriendCareEnergyThreshold = 60
@@ -287,6 +288,43 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                   .putString(PreferencesHelper.KEY_HIRE_FRIEND_UINS, csv)
               if (AccountSessionGuard.isValidUin(currentActiveUin)) {
                   editor.putString(AccountSessionGuard.scopedKey(PreferencesHelper.KEY_HIRE_FRIEND_UINS, currentActiveUin), csv)
+              }
+              editor.commit()
+          } catch (_: Throwable) {}
+      }
+
+      fun parsePkBlacklistUins(csv: String = prefPkBlacklistUinsCsv): Set<Long> {
+          if (csv.isBlank()) return emptySet()
+          return csv.split(",")
+              .mapNotNull { it.trim().toLongOrNull() }
+              .filter { it > 0L }
+              .toSet()
+      }
+
+      fun loadSavedPkBlacklistUins(context: Context): Set<Long> {
+          return try {
+              val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+              val scopedKey = AccountSessionGuard.scopedKey(PreferencesHelper.KEY_PK_BLACKLIST_UINS, currentActiveUin)
+              val csv = prefs.getString(scopedKey, null)
+                  ?: prefs.getString(PreferencesHelper.KEY_PK_BLACKLIST_UINS, "")
+                  ?: ""
+              prefPkBlacklistUinsCsv = csv
+              parsePkBlacklistUins(csv)
+          } catch (_: Throwable) {
+              parsePkBlacklistUins(prefPkBlacklistUinsCsv)
+          }
+      }
+
+      fun savePkBlacklistUins(context: Context, uins: Collection<Long>) {
+          val cleanSet = uins.filter { it > 0L }.toSet()
+          val csv = cleanSet.joinToString(",")
+          prefPkBlacklistUinsCsv = csv
+          try {
+              val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+              val editor = prefs.edit()
+                  .putString(PreferencesHelper.KEY_PK_BLACKLIST_UINS, csv)
+              if (AccountSessionGuard.isValidUin(currentActiveUin)) {
+                  editor.putString(AccountSessionGuard.scopedKey(PreferencesHelper.KEY_PK_BLACKLIST_UINS, currentActiveUin), csv)
               }
               editor.commit()
           } catch (_: Throwable) {}
@@ -572,6 +610,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            val liveUin = verifyAndSyncAccountSession(context)
            loadSavedHireFriendUins(context)
            loadCachedHireableFriends(context)
+           loadSavedPkBlacklistUins(context)
 
             val lSub = prefs.getLong("key_learned_study_sub", 0L)
             if (lSub in listOf(6101L, 6201L, 6301L)) {
@@ -644,7 +683,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
       friendCareEnabled: Boolean = enableFriendCare,
       friendCareEnergyThreshold: Int = prefFriendCareEnergyThreshold,
        friendCareCleanThreshold: Int = prefFriendCareCleanThreshold,
-       autoPk: Boolean = enableAutoPk
+       autoPk: Boolean = enableAutoPk,
+       pkBlacklistUinsCsv: String = prefPkBlacklistUinsCsv
   ) {
       enableStudy = study
       enableWork = work
@@ -674,6 +714,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        enableFriendCare = friendCareEnabled
        prefFriendCareEnergyThreshold = friendCareEnergyThreshold
        prefFriendCareCleanThreshold = friendCareCleanThreshold
+       prefPkBlacklistUinsCsv = pkBlacklistUinsCsv
        com.copilot.qqpet.hook.HookLog.isDebugEnabled = debugLog
        Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold, 好友照料=$friendCareEnabled($friendCareEnergyThreshold/$friendCareCleanThreshold)")
    }
@@ -3080,8 +3121,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             return currentCount
         }
 
-        // 遍历候选对手，只打自己打得过的 (三维属性低于自己)
+        val blacklistUins = loadSavedPkBlacklistUins(context)
+        // 遍历候选对手，只打自己打得过的 (三维属性低于自己，且不在免战黑名单中)
         for (cand in candidatePool) {
+            if (cand.uin > 0L && blacklistUins.contains(cand.uin)) {
+                sendLog(context, "🚫 [自动PK] 跳过黑名单免战对手「${cand.userNick}」(QQ: ${cand.uin})")
+                continue
+            }
             // 若该对手三维未初始化，尝试动态探测
             if (cand.power == 0L && cand.intel == 0L && cand.charm == 0L) {
                 val details = querySecondMapInfoDetailsAwait(6100L, cand.petId)
