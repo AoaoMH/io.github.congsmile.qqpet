@@ -599,6 +599,19 @@
                     <LinearLayout
                         android:id="@+id/containerWorkDuration"
                         android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="被雇佣打工提前召回 (锁定官方高额奖金)"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <LinearLayout
+                        android:id="@+id/containerHiredRecall"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
 

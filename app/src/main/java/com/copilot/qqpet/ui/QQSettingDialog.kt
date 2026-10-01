@@ -1039,6 +1039,9 @@ object QQSettingDialog {
 
         val hiredRecallLabels = listOf("关闭", "12% 稳一档", "42% 稳二档", "72% 最高收益")
         val hiredRecallValues = listOf(0, 12, 42, 72)
+        if (!prefs.contains(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS)) {
+            try { prefs.edit().putInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72).commit() } catch (_: Throwable) {}
+        }
         var curHiredRecall = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
 
         fun getHiredRecallDesc(progress: Int): String = when (progress) {

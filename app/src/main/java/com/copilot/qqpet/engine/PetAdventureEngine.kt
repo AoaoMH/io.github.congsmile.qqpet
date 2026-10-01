@@ -629,6 +629,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            loadSavedHireFriendUins(context)
            loadCachedHireableFriends(context)
            loadSavedPkBlacklistUins(context)
+           if (!prefs.contains(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS)) {
+               try { prefs.edit().putInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72).commit() } catch (_: Throwable) {}
+           }
            prefHiredRecallProgress = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
 
             val lSub = prefs.getLong("key_learned_study_sub", 0L)

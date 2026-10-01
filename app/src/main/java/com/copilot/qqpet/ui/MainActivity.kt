@@ -455,6 +455,24 @@ class MainActivity : AppCompatActivity() {
         binding.containerWorkDuration.removeAllViews()
         binding.containerWorkDuration.addView(workDurationControl)
 
+        // 5.5 被雇佣打工提前召回分段器 (关闭, 12%, 42%, 72%) 默认开启 72% 顶格收益
+        val hiredRecallLabels = listOf("关闭", "12%", "42%", "72%顶格")
+        val hiredRecallValues = listOf(0, 12, 42, 72)
+        val currentHiredRecall = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
+        val selHiredRecallIndex = hiredRecallValues.indexOf(currentHiredRecall).let { if (it >= 0) it else 3 }
+        val hiredRecallControl = AppleSegmentedControl(
+            this,
+            hiredRecallLabels,
+            selectedIndex = selHiredRecallIndex
+        ) { index ->
+            val v = hiredRecallValues.getOrElse(index) { 72 }
+            prefs.edit().putInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, v).apply()
+            updateSummaries(prefs)
+            syncConfigToQQ()
+        }
+        binding.containerHiredRecall.removeAllViews()
+        binding.containerHiredRecall.addView(hiredRecallControl)
+
         // 6. 自主进食/洗澡阈值分段器 (完全对齐 QQ 设置页数值: 40, 60, 80, 90)
         val thresholdLabels = listOf("低于40", "低于60", "低于80", "低于90")
         val thresholdValues = listOf(40, 60, 80, 90)
@@ -545,7 +563,14 @@ class MainActivity : AppCompatActivity() {
             3 -> "长工(2小时)"
             else -> "自适应"
         }
-        binding.tvWorkSummary.text = "$workTypeText · $workDurationText · 轮换兼职"
+        val hiredRecall = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
+        val hiredRecallText = when (hiredRecall) {
+            12 -> "12%召回"
+            42 -> "42%召回"
+            72 -> "72%顶格"
+            else -> "自然结束"
+        }
+        binding.tvWorkSummary.text = "$workTypeText · $workDurationText · $hiredRecallText"
 
         // 照顾状态摘要
         val energyTh = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)

@@ -81,4 +81,15 @@ class HiredRecallCalculatorTest {
         )
         assertFalse(PetAdventureEngine.isHiredTask(schoolStrings))
     }
+
+    @Test
+    fun `default hired recall progress is strictly 72 percent for maximum yield`() {
+        val defaultProgress = PetAdventureEngine.prefHiredRecallProgress
+        assertEquals(72, defaultProgress)
+
+        // 默认 72% 档位下，进度达到 72% 及以上必须被触发
+        assertTrue(PetAdventureEngine.shouldTriggerHiredRecall(72.0, defaultProgress))
+        assertTrue(PetAdventureEngine.shouldTriggerHiredRecall(75.0, defaultProgress))
+        assertFalse(PetAdventureEngine.shouldTriggerHiredRecall(71.9, defaultProgress))
+    }
 }
