@@ -30,8 +30,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         const val ACTION_ENGINE_LOG = "io.github.congsmile.qqpet.ACTION_ENGINE_LOG"
         const val ACTION_TRIGGER_ACTION = "io.github.congsmile.qqpet.ACTION_TRIGGER_ACTION"
         const val ACTION_UPDATE_CONFIG = "io.github.congsmile.qqpet.ACTION_UPDATE_CONFIG"
+        const val ACTION_SYNC_WORK_PLACES = "io.github.congsmile.qqpet.ACTION_SYNC_WORK_PLACES"
+        const val ACTION_SYNC_ACCOUNT_STATUS = "io.github.congsmile.qqpet.ACTION_SYNC_ACCOUNT_STATUS"
         const val EXTRA_LOG_TEXT = "extra_log_text"
         const val EXTRA_ACTION = "extra_action"
+        const val EXTRA_WORK_PLACES_JSON = "extra_work_places_json"
+        const val EXTRA_SCHOOL_DETAILS_JSON = "extra_school_details_json"
 
         var cachedPetId: String? = null
         var lastActiveStoryId: String? = null
@@ -52,10 +56,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         @Volatile var enableLikeBack = true
         @Volatile var enableClaimCoinBag = true
         @Volatile var enableFatigueToAdventure = true
-       @Volatile var prefHumanLikeSleep = true
-       @Volatile var prefNightSleepMode = true
-       @Volatile var prefHideQQSettingEntry = false
-       @Volatile var prefDebugLog = false
+      @Volatile var prefHumanLikeSleep = true
+      @Volatile var prefNightSleepMode = true
+      @Volatile var prefScreenOffSilent = true
+      @Volatile var prefHideQQSettingEntry = false
+      @Volatile var prefDebugLog = false
        @Volatile var enableHireFriend = true
        @Volatile var prefHireFriendUinsCsv = ""
        @Volatile var cachedHireableFriends: List<QQPetDirectBridge.HireableFriend> = emptyList()
@@ -520,10 +525,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            prefCustomWorkDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
            prefCareEnergyThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
            prefCareCleanThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
-           prefHumanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
-           prefNightSleepMode = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
-           prefHideQQSettingEntry = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
-           prefDebugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
+          prefHumanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+          prefNightSleepMode = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
+          prefScreenOffSilent = prefs.getBoolean(PreferencesHelper.KEY_SCREEN_OFF_SILENT, true)
+          prefHideQQSettingEntry = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+          prefDebugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
            enableHireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
            enableFriendCare = prefs.getBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, false)
            prefFriendCareEnergyThreshold = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
@@ -595,10 +601,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        workDuration: Int = prefCustomWorkDuration,
        careEnergyThreshold: Int = prefCareEnergyThreshold,
        careCleanThreshold: Int = prefCareCleanThreshold,
-       humanLikeSleep: Boolean = prefHumanLikeSleep,
-       nightSleepMode: Boolean = prefNightSleepMode,
-       hideQQSettingEntry: Boolean = prefHideQQSettingEntry,
-       debugLog: Boolean = prefDebugLog,
+      humanLikeSleep: Boolean = prefHumanLikeSleep,
+      nightSleepMode: Boolean = prefNightSleepMode,
+      screenOffSilent: Boolean = prefScreenOffSilent,
+      hideQQSettingEntry: Boolean = prefHideQQSettingEntry,
+      debugLog: Boolean = prefDebugLog,
        hireFriend: Boolean = enableHireFriend,
        hireFriendUinsCsv: String = prefHireFriendUinsCsv,
        friendCareEnabled: Boolean = enableFriendCare,
@@ -622,10 +629,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        prefCustomWorkDuration = workDuration
        prefCareEnergyThreshold = careEnergyThreshold
        prefCareCleanThreshold = careCleanThreshold
-       prefHumanLikeSleep = humanLikeSleep
-       prefNightSleepMode = nightSleepMode
-       prefHideQQSettingEntry = hideQQSettingEntry
-       prefDebugLog = debugLog
+      prefHumanLikeSleep = humanLikeSleep
+      prefNightSleepMode = nightSleepMode
+      prefScreenOffSilent = screenOffSilent
+      prefHideQQSettingEntry = hideQQSettingEntry
+      prefDebugLog = debugLog
        enableHireFriend = hireFriend
        prefHireFriendUinsCsv = hireFriendUinsCsv
        enableFriendCare = friendCareEnabled
@@ -672,15 +680,21 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
 
     private suspend fun executeMasterCycle(context: Context): Long {
         reloadConfig(context)
-        if (prefNightSleepMode && StealthScheduler.isNightSilentWindow(true)) {
-            val sleepMs = StealthScheduler.calculateNightSleepMillis()
-            val hours = sleepMs / (3600 * 1000L)
-            val mins = (sleepMs % (3600 * 1000L)) / (60 * 1000L)
-            currentStatusText = "夜间拟人静默中 · 早晨恢复"
-            sendLog(context, "🌙 [夜间静默] 当前处于深夜防风控窗口 (01:30~06:30)，暂停所有后台唤醒与轮转，预计 ${hours}小时${mins}分后恢复")
-            return sleepMs
+       if (prefNightSleepMode && StealthScheduler.isNightSilentWindow(true)) {
+           val sleepMs = StealthScheduler.calculateNightSleepMillis()
+           val hours = sleepMs / (3600 * 1000L)
+           val mins = (sleepMs % (3600 * 1000L)) / (60 * 1000L)
+           currentStatusText = "夜间拟人静默中 · 早晨恢复"
+           sendLog(context, "🌙 [夜间静默] 当前处于深夜防风控窗口 (01:30~06:30)，暂停所有后台唤醒与轮转，预计 ${hours}小时${mins}分后恢复")
+           return sleepMs
+       }
+        if (prefScreenOffSilent && !StealthScheduler.isScreenInteractive(context)) {
+            val sleepSec = StealthScheduler.calculateIdleCycleDelayMillis(prefHumanLikeSleep) / 1000L
+            currentStatusText = "熄屏拟人静默中 · 亮屏恢复"
+            sendLog(context, "📱 [熄屏静默] 当前设备屏幕已熄灭，暂停主动请求，拟人休眠 ${sleepSec} 秒直至亮屏")
+            return sleepSec * 1000L
         }
-        if (!bridge.isReady) {
+       if (!bridge.isReady) {
             currentStatusText = "发包代理连接中..."
             sendLog(context, "⏳ [挂起] QQ 内部发包代理尚未就绪，等待 10 秒...")
             return 10 * 1000L
@@ -779,39 +793,15 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 lastActiveStoryId = null
                 currentTaskEndTimeMillis = 0L
             }
-            delay(2000L)
-        }
+           delay(2000L)
+       }
 
-        // 4.5 自动回踩访客 (互相踩踩)：周期性检查来踩访客并执行回踩
-        if (enableLikeBack) {
-            val now = System.currentTimeMillis()
-            if (now - lastLikeBackTimeMillis > 5 * 60 * 1000L) { // 每5分钟巡检一次来踩访客
-                lastLikeBackTimeMillis = now
-                executeAutoLikeBack(context)
-            }
-        }
+       // 4. 【多业务错峰平摊调度】杜绝瞬时并发突发请求，单周期最多处理 1 项维护性工作
+       val now = System.currentTimeMillis()
+       var maintenanceDispatched = false
 
-        // 4.6 自动领取好友福袋：周期性扫描好友列表中的 CoinBag 并拆取金币
-        if (enableClaimCoinBag) {
-            val now = System.currentTimeMillis()
-            if (now - lastCoinBagTimeMillis > 4 * 60 * 1000L) {
-                lastCoinBagTimeMillis = now
-                executeAutoClaimCoinBag(context, petId, isManual = false)
-            }
-        }
-
-        // 4.7 好友宠物自动喂食与洗澡：默认关闭，开启后每 10 分钟巡检一次全部养宠好友
-        if (enableFriendCare) {
-            val now = System.currentTimeMillis()
-            if (now - lastFriendCareTimeMillis >= 10 * 60 * 1000L) {
-                lastFriendCareTimeMillis = now
-                executeAutoFriendCare(context, petId, isManual = false)
-            }
-        }
-
-       // 4. 自动照顾：喂食 + 洗澡 (周期性守护，无论是否在任务中，均定期进行照顾补充体力与清洁度)
+       // 4.1 自动照顾：喂食 + 洗澡 (自身体力与清洁度守护)
        if (enableCare) {
-           val now = System.currentTimeMillis()
            bridge.refreshProfile()
            val attrs = queryPetAttributesAwait(petId) ?: bridge.getPetAttributes(petId)
 
@@ -826,6 +816,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
 
                if (needFeed || needBath || (now - lastCareTimeMillis > 5 * 60 * 1000L)) {
                    lastCareTimeMillis = now
+                   maintenanceDispatched = true
 
                    if (needFeed) {
                        currentStatusText = "体力偏低 · 立即自动喂食"
@@ -858,6 +849,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            } else {
                if (now - lastCareTimeMillis > 3 * 60 * 1000L) {
                    lastCareTimeMillis = now
+                   maintenanceDispatched = true
                    currentStatusText = "日常照顾 (喂食+清洁)..."
                    val (tCode, remain, total) = queryFeedTimesAwait()
                    if (tCode == 0 && total > 0 && remain <= 0) {
@@ -880,6 +872,30 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                    delay(1200L)
                }
            }
+       }
+
+       // 4.2 若本轮未执行自身照顾，按错峰间隔检查好友福袋
+       if (!maintenanceDispatched && enableClaimCoinBag && (now - lastCoinBagTimeMillis > 5 * 60 * 1000L)) {
+           lastCoinBagTimeMillis = now
+           maintenanceDispatched = true
+           executeAutoClaimCoinBag(context, petId, isManual = false)
+           delay(1200L)
+       }
+
+       // 4.3 若本轮未执行其他维护，按错峰间隔检查访客回踩
+       if (!maintenanceDispatched && enableLikeBack && (now - lastLikeBackTimeMillis > 6 * 60 * 1000L)) {
+           lastLikeBackTimeMillis = now
+           maintenanceDispatched = true
+           executeAutoLikeBack(context)
+           delay(1200L)
+       }
+
+       // 4.4 若本轮未执行其他维护，按错峰间隔检查好友宠物照料 (单轮平摊最多照料 3 位好友)
+       if (!maintenanceDispatched && enableFriendCare && (now - lastFriendCareTimeMillis >= 10 * 60 * 1000L)) {
+           lastFriendCareTimeMillis = now
+           maintenanceDispatched = true
+           executeAutoFriendCare(context, petId, isManual = false)
+           delay(1200L)
        }
 
        // 若当前仍有任务在身，不触发新的外出，睡眠 30 秒以保持倒计时和状态动态刷新
@@ -1477,7 +1493,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                     lastFriendCareTimeMillis = System.currentTimeMillis()
                     executeAutoFriendCare(context, petId, isManual = true)
                 }
-               "inspect" -> {
+                "query_work_places" -> {
+                    preloadAndBroadcastAccountStatus(context)
+                }
+                "query_account_status" -> {
+                    preloadAndBroadcastAccountStatus(context)
+                }
+                "inspect" -> {
                    val petId = ensurePetId(context) ?: return@launch
                    sendLog(context, "🔍 [全量数据探测] 开始深度抓取官方全学园与全工种配置...")
                    val map6400 = querySecondMapInfoDetailsAwait(6400L, petId)
@@ -2346,11 +2368,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        if (cCode == 0 && courses.isNotEmpty()) {
            cachedSchoolCourses = courses
        }
-       val workMap = querySecondMapInfoDetailsAwait(6400L, petId)
-       if (workMap.code == 0) {
-           cachedWorkPlaces = workMap
-       }
-       val targetCareer = if (prefCustomWorkType > 0) prefCustomWorkType else 3
+        val workMap = querySecondMapInfoDetailsAwait(6400L, petId)
+        if (workMap.code == 0) {
+            cachedWorkPlaces = workMap
+        }
+        val targetCareer = if (prefCustomWorkType > 0) prefCustomWorkType else 3
        val (jCode, jobs) = querySelectEventsAwait(6400L, petId, schoolStage = 0, careerType = targetCareer)
        if (jCode == 0 && jobs.isNotEmpty()) {
            cachedWorkJobs = jobs
@@ -2792,11 +2814,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 context,
                 "🤝 [好友照料] 开始扫描全部养宠好友状态 (触发阈值: 体力<$prefFriendCareEnergyThreshold 喂食, 清洁<$prefFriendCareCleanThreshold 洗澡)..."
             )
-           val friends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
-               .filter { it.uin > 0L && it.petId.isNotBlank() && it.petId != ownPetId }
-                .take(if (isManual) 12 else 5) // 单轮平摊最多巡检 5 位好友，彻底避免突发大面积发包被风控时序聚类
+          val friends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
+              .filter { it.uin > 0L && it.petId.isNotBlank() && it.petId != ownPetId }
+               .take(if (isManual) 12 else 3) // 单轮平摊最多巡检 3 位好友，彻底避免突发大面积发包被风控时序聚类
 
-           if (friends.isEmpty()) {
+          if (friends.isEmpty()) {
                sendLog(context, "ℹ️ [好友照料] 暂未发现可照料的养宠好友")
                return
            }
@@ -2881,6 +2903,73 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             context.sendBroadcast(intent)
         } catch (t: Throwable) {
             Log.e(TAG, "发送广播日志失败: ${t.message}")
+        }
+    }
+
+    fun broadcastAccountStatus(context: Context) {
+        try {
+            val intent = Intent(ACTION_SYNC_ACCOUNT_STATUS).apply {
+                setPackage("io.github.congsmile.qqpet")
+            }
+            cachedWorkPlaces?.let { places ->
+                val workArray = org.json.JSONArray()
+                for (s in places.stages) {
+                    val obj = org.json.JSONObject().apply {
+                        put("stage", s.stage)
+                        put("title", s.title)
+                        put("limitStatus", s.limitStatus)
+                        put("isGraduated", s.isGraduated)
+                        put("lockReason", s.lockReason)
+                    }
+                    workArray.put(obj)
+                }
+                intent.putExtra(EXTRA_WORK_PLACES_JSON, workArray.toString())
+            }
+            cachedSchoolDetails?.let { school ->
+                val schoolArray = org.json.JSONArray()
+                for (s in school.stages) {
+                    val obj = org.json.JSONObject().apply {
+                        put("stage", s.stage)
+                        put("title", s.title)
+                        put("limitStatus", s.limitStatus)
+                        put("isGraduated", s.isGraduated)
+                        put("lockReason", s.lockReason)
+                    }
+                    schoolArray.put(obj)
+                }
+                intent.putExtra(EXTRA_SCHOOL_DETAILS_JSON, schoolArray.toString())
+            }
+            context.sendBroadcast(intent)
+        } catch (t: Throwable) {
+            Log.e(TAG, "广播账户动态数据失败: ${t.message}")
+        }
+    }
+
+    fun preloadAndBroadcastAccountStatus(context: Context) {
+        if (cachedWorkPlaces != null && cachedSchoolDetails != null) {
+            broadcastAccountStatus(context)
+            return
+        }
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                var petId = cachedPetId
+                if (petId.isNullOrEmpty()) {
+                    val (_, fetchedId) = queryOwnPetAwait()
+                    petId = fetchedId
+                }
+                if (petId.isNullOrEmpty()) return@launch
+                val schoolMap = querySecondMapInfoDetailsAwait(6100L, petId)
+                if (schoolMap.code == 0) {
+                    cachedSchoolDetails = schoolMap
+                }
+                val workMap = querySecondMapInfoDetailsAwait(6400L, petId)
+                if (workMap.code == 0) {
+                    cachedWorkPlaces = workMap
+                }
+                broadcastAccountStatus(context)
+            } catch (t: Throwable) {
+                Log.w(TAG, "拉取并广播动态状态异常: ${t.message}")
+            }
         }
     }
 }

@@ -79,7 +79,20 @@ object StealthScheduler {
         }
     }
 
-    fun isLogAllowed(debugEnabled: Boolean): Boolean = debugEnabled
+   fun isLogAllowed(debugEnabled: Boolean): Boolean = debugEnabled
 
-    fun shouldInjectSettingCard(hideSettingEntry: Boolean): Boolean = !hideSettingEntry
+   fun shouldInjectSettingCard(hideSettingEntry: Boolean): Boolean = !hideSettingEntry
+
+    /**
+     * 判断设备屏幕是否处于点亮/交互状态 (PowerManager.isInteractive)
+     * 锁屏或屏幕熄灭时返回 false，用于熄屏防风控静默判定。
+     */
+    fun isScreenInteractive(context: android.content.Context): Boolean {
+        return try {
+            val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+            pm?.isInteractive ?: true
+        } catch (_: Throwable) {
+            true
+        }
+    }
 }

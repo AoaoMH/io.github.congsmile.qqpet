@@ -213,7 +213,8 @@ class AppleSegmentedControl(
             itemStates.add(item)
             val tv = TextView(context).apply {
                 text = item.title
-                textSize = 12f
+                textSize = if (newItems.size >= 5 && !isScrollable) 11f else 12f
+                maxLines = 1
                 gravity = Gravity.CENTER
                 if (isScrollable) {
                     setPadding(dp(11f).toInt(), dp(6.5f).toInt(), dp(11f).toInt(), dp(6.5f).toInt())
@@ -1321,8 +1322,9 @@ object QQSettingDialog {
        addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, false)
        addSimpleToggleRow(dailyCard, "动态拟人休眠", "随机1~3分钟非固定周期休眠，有效避免行为时序聚类识别", PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true, false)
        dailyCard.addView(createDivider())
-       addSimpleToggleRow(dailyCard, "夜间防风控静默", "凌晨01:30~06:30暂停唤醒与轮转，完全符合人类作息时序", PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true, false)
-       addSimpleToggleRow(dailyCard, "QQ设置页纯净隐身", "仅在QQ内部隐藏本弹窗卡片，可通过伴侣独立App管理", PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false, false)
+      addSimpleToggleRow(dailyCard, "夜间防风控静默", "凌晨01:30~06:30暂停唤醒与轮转，完全符合人类作息时序", PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true, false)
+      addSimpleToggleRow(dailyCard, "熄屏防风控静默", "手机熄屏锁屏时暂停主动发包调度，亮屏恢复，避免黑屏发包特征", PreferencesHelper.KEY_SCREEN_OFF_SILENT, true, false)
+      addSimpleToggleRow(dailyCard, "QQ设置页纯净隐身", "仅在QQ内部隐藏本弹窗卡片，可通过伴侣独立App管理", PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false, false)
        addSimpleToggleRow(dailyCard, "调试详细日志", "默认静默，开启后向 XposedBridge 打印详细发包日志", PreferencesHelper.KEY_DEBUG_LOG, false, true)
        contentLayout.addView(dailyCard)
 
@@ -2320,9 +2322,10 @@ object QQSettingDialog {
        val workDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
        val careEnergy = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
        val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
-       val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
-       val nightSleep = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
-       val hideQQSetting = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
+      val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+      val nightSleep = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
+      val screenOffSilent = prefs.getBoolean(PreferencesHelper.KEY_SCREEN_OFF_SILENT, true)
+      val hideQQSetting = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
       val debugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
       val hireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
       val hireUinsCsv = PetAdventureEngine.loadSavedHireFriendUins(context).joinToString(",")
@@ -2330,9 +2333,9 @@ object QQSettingDialog {
       val friendCareEnergy = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
       val friendCareClean = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
 
-      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
+      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
       if (engine != null && engine !== HookEntry.globalEngine) {
-          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
+          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
       }
       val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
@@ -2353,9 +2356,10 @@ object QQSettingDialog {
            putExtra("extra_work_duration", workDuration)
            putExtra("extra_care_energy_threshold", careEnergy)
            putExtra("extra_care_clean_threshold", careClean)
-           putExtra("extra_human_like_sleep", humanLikeSleep)
-           putExtra("extra_night_sleep_mode", nightSleep)
-           putExtra("extra_hide_qq_setting_entry", hideQQSetting)
+          putExtra("extra_human_like_sleep", humanLikeSleep)
+          putExtra("extra_night_sleep_mode", nightSleep)
+          putExtra("extra_screen_off_silent", screenOffSilent)
+          putExtra("extra_hide_qq_setting_entry", hideQQSetting)
           putExtra("extra_debug_log", debugLog)
           putExtra("extra_hire_friend_enabled", hireFriend)
           putExtra("extra_hire_friend_uins", hireUinsCsv)

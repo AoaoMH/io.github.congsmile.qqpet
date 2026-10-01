@@ -38,10 +38,14 @@ object NetworkSecurityShield {
         if (isInstalled) return
         isInstalled = true
 
-        hookChannelProxyExt(classLoader)
-        hookMsfCore(classLoader)
-        hookKickBackstop(classLoader)
-        hookTuringWrapper(classLoader)
+       hookChannelProxyExt(classLoader)
+       hookMsfCore(classLoader)
+       hookKickBackstop(classLoader)
+       hookTuringWrapper(classLoader)
+        hookTuringRiskDetect(classLoader)
+        hookTuringDID(classLoader)
+        hookChannelReport(classLoader)
+        hookTuringInit(classLoader)
         Log.d(TAG, "🛡️ 网络告密阻断盾与防踢下线保护层已就绪")
     }
 
@@ -168,5 +172,100 @@ object NetworkSecurityShield {
                 }
             }
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * 拦截图灵盾核心风险探测接口：reqRiskDetectV2 返回 RiskDetectResp 对象。
+     * 图灵 SDK 内部对响应对象做了防御性空值校验，置空即可阻断异常环境评分上报。
+     */
+    private fun hookTuringRiskDetect(classLoader: ClassLoader) {
+        val classes = arrayOf(
+            "com.tencent.tfd.sdk.wxa.TuringRiskService",
+            "com.tencent.turingfd.sdk.xq.TuringRiskService"
+        )
+        for (clsName in classes) {
+            try {
+                val cls = Class.forName(clsName, false, classLoader)
+                for (m in cls.declaredMethods) {
+                    if (m.name == "reqRiskDetectV2" && !m.returnType.isPrimitive) {
+                        XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                            override fun beforeHookedMethod(param: MethodHookParam) {
+                                Log.d(TAG, "🛡️ [图灵拦截] 压制图灵核心风险检测: $clsName.reqRiskDetectV2")
+                                param.result = null
+                            }
+                        })
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /**
+     * 拦截图灵设备指纹获取：getTuringDID / getTuringDIDCached 返回 ITuringDID，getTuringDIDAsync 返回 void。
+     */
+    private fun hookTuringDID(classLoader: ClassLoader) {
+        val classes = arrayOf(
+            "com.tencent.tfd.sdk.wxa.TuringIDService",
+            "com.tencent.turingfd.sdk.xq.TuringIDService"
+        )
+        val targetMethods = setOf("getTuringDID", "getTuringDIDAsync", "getTuringDIDCached")
+        for (clsName in classes) {
+            try {
+                val cls = Class.forName(clsName, false, classLoader)
+                for (m in cls.declaredMethods) {
+                    if (m.name in targetMethods && (!m.returnType.isPrimitive || m.returnType == java.lang.Void.TYPE)) {
+                        XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                            override fun beforeHookedMethod(param: MethodHookParam) {
+                                Log.d(TAG, "🛡️ [图灵拦截] 阻断设备指纹获取: $clsName.${m.name}")
+                                param.result = null
+                            }
+                        })
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /**
+     * 拦截 ChannelManager.checkMethod() 上报通道装载入口 (void 返回值)
+     */
+    private fun hookChannelReport(classLoader: ClassLoader) {
+        try {
+            val cmCls = Class.forName("com.tencent.mobileqq.channel.ChannelManager", false, classLoader)
+            for (m in cmCls.declaredMethods) {
+                if (m.name == "checkMethod" && m.returnType == java.lang.Void.TYPE) {
+                    XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            param.result = null
+                        }
+                    })
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * 拦截图灵 SDK 初始化入口与外挂探测扫描
+     */
+    private fun hookTuringInit(classLoader: ClassLoader) {
+        val turingClasses = arrayOf(
+            "com.tencent.turingfd.sdk.xq.Pomegranate",
+            "com.tencent.turingfd.sdk.xq.Blueberry",
+            "com.tencent.turingcam.oqKCa"
+        )
+        for (clsName in turingClasses) {
+            try {
+                val cls = Class.forName(clsName, false, classLoader)
+                for (m in cls.declaredMethods) {
+                    if (m.name == "a" && (!m.returnType.isPrimitive || m.returnType == java.lang.Void.TYPE)) {
+                        XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                            override fun beforeHookedMethod(param: MethodHookParam) {
+                                param.result = null
+                            }
+                        })
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
     }
 }

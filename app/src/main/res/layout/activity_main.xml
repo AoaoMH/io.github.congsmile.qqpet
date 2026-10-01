@@ -56,6 +56,110 @@
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
 
+        <!-- 官方反馈交流群入口卡片 (Apple Inset Grouped) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="18dp"
+            app:cardBackgroundColor="@color/surface"
+            app:cardCornerRadius="14dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="0.5dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="官方反馈交流群"
+                        android:textColor="@color/text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="群号: 1087942084 · 问题反馈与交流"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnJoinGroup"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:backgroundTint="@color/ios_tint_bg"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:stateListAnimator="@null"
+                    android:text="一键加群"
+                    android:textColor="@color/ios_tint_text"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="17dp"
+                    app:strokeWidth="0dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 运行提示与 QQ 设置页原生控制引导卡片 (Apple Inset Grouped) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardTips"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="18dp"
+            app:cardBackgroundColor="@color/surface"
+            app:cardCornerRadius="14dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="0.5dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingTop="14dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="运行提示与免开 App 说明"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="3.5dp"
+                    android:text="1. 本模块已深度嵌入 QQ，打开 QQ「设置」进入「Q宠后台伴侣」即可完成所有策略配置与即时控制，平时无需单独打开本 App；\n2. QQ 保持后台运行即可全天候自动化调度打工、学习、照顾与冒险；\n3. 配置项修改即刻跨进程生效，如需在 QQ 设置页隐藏入口可开启下方的纯净隐身。"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- 指令与发包实测卡片 -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardTestCenter"
@@ -328,6 +432,7 @@
                             android:textColor="@color/text_primary"
                             android:textSize="15sp" />
                         <TextView
+                            android:id="@+id/tvStudySummary"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
@@ -338,6 +443,65 @@
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchStudy"
                         android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <!-- 学习自定义细项面板 -->
+                <LinearLayout
+                    android:id="@+id/layoutStudyOptions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="学园阶段"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:scrollbars="none"
+                        android:layout_marginBottom="8dp">
+                        <LinearLayout
+                            android:id="@+id/containerSchoolStage"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </HorizontalScrollView>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="偏好科目"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:scrollbars="none"
+                        android:layout_marginBottom="8dp">
+                        <LinearLayout
+                            android:id="@+id/containerCourseSubject"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </HorizontalScrollView>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="学习时长"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <LinearLayout
+                        android:id="@+id/containerCourseDuration"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
 
@@ -368,6 +532,7 @@
                             android:textColor="@color/text_primary"
                             android:textSize="15sp" />
                         <TextView
+                            android:id="@+id/tvWorkSummary"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
@@ -378,6 +543,47 @@
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchWork"
                         android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <!-- 打工自定义细项面板 -->
+                <LinearLayout
+                    android:id="@+id/layoutWorkOptions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="打工场所"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:scrollbars="none"
+                        android:layout_marginBottom="8dp">
+                        <LinearLayout
+                            android:id="@+id/containerWorkType"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </HorizontalScrollView>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="打工时长"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <LinearLayout
+                        android:id="@+id/containerWorkDuration"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
 
@@ -408,6 +614,7 @@
                             android:textColor="@color/text_primary"
                             android:textSize="15sp" />
                         <TextView
+                            android:id="@+id/tvCareSummary"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
@@ -421,43 +628,39 @@
                         android:layout_height="wrap_content" />
                 </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:layout_marginStart="16dp"
-                    android:background="@color/divider" />
-
-                <!-- 好友宠物自动照顾 -->
+                <!-- 照顾阈值细项面板 -->
                 <LinearLayout
+                    android:id="@+id/layoutCareOptions"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
+                    android:orientation="vertical"
                     android:paddingStart="16dp"
-                    android:paddingTop="12dp"
                     android:paddingEnd="16dp"
                     android:paddingBottom="12dp">
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="好友宠物自动照顾"
-                            android:textColor="@color/text_primary"
-                            android:textSize="15sp" />
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="每10分钟巡检并帮好友喂食洗澡"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchFriendCare"
+
+                    <TextView
                         android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="进食体力触发阈值 (低于该值开始进食)"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <LinearLayout
+                        android:id="@+id/containerCareEnergy"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="沐浴清洁触发阈值 (低于该值开始洗澡)"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <LinearLayout
+                        android:id="@+id/containerCareClean"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
 
@@ -501,6 +704,40 @@
                         android:layout_height="wrap_content" />
                 </LinearLayout>
 
+                <!-- 冒险细项面板 (疲惫转冒险) -->
+                <LinearLayout
+                    android:id="@+id/layoutAdvOptions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="疲惫状态立即转为冒险"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13.5sp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="1dp"
+                            android:text="遇疲惫 Buff 自动召回打工/学习转去探险"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="11.5sp" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchFatigueToAdv"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="0.5dp"
@@ -538,6 +775,226 @@
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchSettle"
                         android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 社交互助与福袋 (iOS Inset Grouped TableView) -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginBottom="6dp"
+            android:text="社交互助与福利"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp"
+            app:cardBackgroundColor="@color/surface"
+            app:cardCornerRadius="14dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="0.5dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- 访客回踩 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:paddingStart="16dp"
+                    android:paddingTop="12dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="访客回踩互助"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="检测到好友踩一踩自动回踩互动"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchLikeBack"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginStart="16dp"
+                    android:background="@color/divider" />
+
+                <!-- 自动领取好友福袋 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:paddingStart="16dp"
+                    android:paddingTop="12dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="自动领取好友福袋"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="巡检并领取好友宠物产出的金币福袋"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchClaimCoinBag"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginStart="16dp"
+                    android:background="@color/divider" />
+
+                <!-- 自动雇佣打工好友 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:paddingStart="16dp"
+                    android:paddingTop="12dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="自动雇佣好友打工"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="优先雇佣已解锁高资质空闲好友"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchHireFriend"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.5dp"
+                    android:layout_marginStart="16dp"
+                    android:background="@color/divider" />
+
+                <!-- 好友宠物自动照顾 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:paddingStart="16dp"
+                    android:paddingTop="12dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="好友宠物自动照顾"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp" />
+                        <TextView
+                            android:id="@+id/tvFriendCareSummary"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="每10分钟巡检并帮好友喂食洗澡"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchFriendCare"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <!-- 好友照顾阈值面板 -->
+                <LinearLayout
+                    android:id="@+id/layoutFriendCareOptions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="好友体力触发阈值 (低于该值自动帮喂食)"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <LinearLayout
+                        android:id="@+id/containerFriendEnergy"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="好友清洁触发阈值 (低于该值自动帮洗澡)"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:layout_marginBottom="4dp" />
+                    <LinearLayout
+                        android:id="@+id/containerFriendClean"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
 
@@ -638,20 +1095,60 @@
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchNightSleep"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
+                   <com.google.android.material.materialswitch.MaterialSwitch
+                       android:id="@+id/switchNightSleep"
+                       android:layout_width="wrap_content"
+                       android:layout_height="wrap_content" />
+               </LinearLayout>
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:layout_marginStart="16dp"
-                    android:background="@color/divider" />
+               <View
+                   android:layout_width="match_parent"
+                   android:layout_height="0.5dp"
+                   android:layout_marginStart="16dp"
+                   android:background="@color/divider" />
 
-                <!-- QQ设置页纯净隐身 -->
-                <LinearLayout
+               <!-- 熄屏防风控静默 -->
+               <LinearLayout
+                   android:layout_width="match_parent"
+                   android:layout_height="wrap_content"
+                   android:gravity="center_vertical"
+                   android:paddingStart="16dp"
+                   android:paddingTop="12dp"
+                   android:paddingEnd="16dp"
+                   android:paddingBottom="12dp">
+                   <LinearLayout
+                       android:layout_width="0dp"
+                       android:layout_height="wrap_content"
+                       android:layout_weight="1"
+                       android:orientation="vertical">
+                       <TextView
+                           android:layout_width="wrap_content"
+                           android:layout_height="wrap_content"
+                           android:text="熄屏防风控静默"
+                           android:textColor="@color/text_primary"
+                           android:textSize="15sp" />
+                       <TextView
+                           android:layout_width="wrap_content"
+                           android:layout_height="wrap_content"
+                           android:layout_marginTop="2dp"
+                           android:text="屏幕熄灭锁屏时暂停发包，亮屏时顺延恢复"
+                           android:textColor="@color/text_secondary"
+                           android:textSize="12sp" />
+                   </LinearLayout>
+                   <com.google.android.material.materialswitch.MaterialSwitch
+                       android:id="@+id/switchScreenOffSilent"
+                       android:layout_width="wrap_content"
+                       android:layout_height="wrap_content" />
+               </LinearLayout>
+
+               <View
+                   android:layout_width="match_parent"
+                   android:layout_height="0.5dp"
+                   android:layout_marginStart="16dp"
+                   android:background="@color/divider" />
+
+               <!-- QQ设置页纯净隐身 -->
+               <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
