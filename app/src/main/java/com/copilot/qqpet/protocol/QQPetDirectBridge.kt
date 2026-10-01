@@ -992,54 +992,64 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
     /**
      * 发起冒险探索
      */
-    fun startAdventure(
-        petId: String,
-        adventureName: String = "森林探险",
-        subEventType: Long = 6701L,
-        callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
-    ) {
-        startSceneTask(6700L, petId, adventureName, subEventType, "", callback)
-    }
+   fun startAdventure(
+       petId: String,
+       adventureName: String = "森林探险",
+       subEventType: Long = 6701L,
+       callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
+   ) {
+       startSceneTask(6700L, petId, adventureName, subEventType, "", 0L, callback)
+   }
 
-    /**
-     * 发起兼职打工
-     */
-    fun startWork(
-        petId: String,
-        jobName: String = "小镇兼职",
-        page: Long = 6400L,
-        subEventType: Long = 6401L,
-        hiredPetId: String = "",
-        callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
-    ) {
-        startSceneTask(page, petId, jobName, subEventType, hiredPetId, callback)
-    }
+   /**
+    * 发起兼职打工
+    */
+   fun startWork(
+       petId: String,
+       jobName: String = "小镇兼职",
+       page: Long = 6400L,
+       subEventType: Long = 6401L,
+       hiredPetId: String = "",
+        hiredUin: Long = 0L,
+       callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
+   ) {
+        startSceneTask(page, petId, jobName, subEventType, hiredPetId, hiredUin, callback)
+   }
 
-    /**
+   /**
      * 发起进阶学习
      */
-    fun startSchool(
-        petId: String,
-        courseName: String = "基础学园课程",
-        page: Long = 6100L,
-        subEventType: Long = 6101L,
-        callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
-    ) {
-        startSceneTask(page, petId, courseName, subEventType, "", callback)
-    }
+   fun startSchool(
+       petId: String,
+       courseName: String = "基础学园课程",
+       page: Long = 6100L,
+       subEventType: Long = 6101L,
+       callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
+   ) {
+        startSceneTask(page, petId, courseName, subEventType, "", 0L, callback)
+   }
 
-    private fun startSceneTask(
-        page: Long,
-        petId: String,
-        taskName: String,
-        subEventType: Long,
-        hiredPetId: String = "",
-        callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
-    ) {
-        val body = ProtoWire.message()
+   private fun startSceneTask(
+       page: Long,
+       petId: String,
+       taskName: String,
+       subEventType: Long,
+       hiredPetId: String = "",
+        hiredUin: Long = 0L,
+       callback: (code: Int, storyId: String?, rawData: ByteArray?, errorMsg: String?) -> Unit
+   ) {
+        val msg = ProtoWire.message()
             .writeVarint(1, page)
             .writeString(2, petId)
-            .writeString(3, hiredPetId)
+            .writeString(3, "")
+        if (hiredPetId.isNotBlank() && hiredUin > 0L) {
+            val reqUserInfo = ProtoWire.message()
+                .writeString(1, hiredPetId)
+                .writeString(2, hiredUin.toString())
+                .toByteArray()
+            msg.writeBytes(4, reqUserInfo)
+        }
+        val body = msg
             .writeString(6, taskName)
             .writeVarint(7, subEventType)
             .writeVarint(100, 2L)

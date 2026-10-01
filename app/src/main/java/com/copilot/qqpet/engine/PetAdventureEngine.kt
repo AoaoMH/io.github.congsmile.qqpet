@@ -1985,23 +1985,24 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        return Pair(fCode, null)
    }
 
-   private suspend fun startWorkAwait(
-        petId: String,
-        jobName: String = "小镇兼职",
-        page: Long = 6400L,
-        subEventType: Long = 6401L,
-        hiredPetId: String = "",
-        timeoutMs: Long = NETWORK_TIMEOUT_MS
-    ): Triple<Int, String?, String?> =
-        try {
-            withTimeoutOrNull(timeoutMs) {
-                suspendCancellableCoroutine { cont ->
-                    bridge.startWork(petId, jobName, page, subEventType, hiredPetId) { code, storyId, _, errorMsg ->
-                        if (cont.isActive) cont.resume(Triple(code, storyId, errorMsg))
-                    }
-                }
-            } ?: Triple(-99, null, "网络响应超时")
-        } catch (t: Throwable) {
+  private suspend fun startWorkAwait(
+       petId: String,
+       jobName: String = "小镇兼职",
+       page: Long = 6400L,
+       subEventType: Long = 6401L,
+       hiredPetId: String = "",
+       hiredUin: Long = 0L,
+       timeoutMs: Long = NETWORK_TIMEOUT_MS
+   ): Triple<Int, String?, String?> =
+       try {
+           withTimeoutOrNull(timeoutMs) {
+               suspendCancellableCoroutine { cont ->
+                   bridge.startWork(petId, jobName, page, subEventType, hiredPetId, hiredUin) { code, storyId, _, errorMsg ->
+                       if (cont.isActive) cont.resume(Triple(code, storyId, errorMsg))
+                   }
+               }
+           } ?: Triple(-99, null, "网络响应超时")
+       } catch (t: Throwable) {
             Triple(-99, null, t.message)
         }
 
@@ -2027,14 +2028,15 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                     context,
                     "🤝 [打工雇佣] 正在尝试雇佣空闲最高收益好友「$friendLabel」(QQ:${candidate.uin}, 小宠:${candidate.petNick}, 总资质:${candidate.totalAttr})..."
                 )
-                val (code, storyId, errMsg) = startWorkAwait(
-                    petId = petId,
-                    jobName = jobName,
-                    page = page,
-                    subEventType = subEventType,
-                    hiredPetId = candidate.petId
-                )
-                if (code == 0 && !storyId.isNullOrEmpty()) {
+               val (code, storyId, errMsg) = startWorkAwait(
+                   petId = petId,
+                   jobName = jobName,
+                   page = page,
+                   subEventType = subEventType,
+                   hiredPetId = candidate.petId,
+                   hiredUin = candidate.uin
+               )
+               if (code == 0 && !storyId.isNullOrEmpty()) {
                     return WorkStartWithHireResult(code, storyId, errMsg, candidate)
                 }
                 sendLog(
@@ -2204,23 +2206,24 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
     /**
      * 在已勾选的好友白名单中：过滤非勾选好友 -> 实时探测空闲状态与真实三围资质 -> 按总资质从高到低返回可雇佣列表
      */
-    private suspend fun selectBestHireCandidatesAwait(
-        context: Context,
-        ownPetId: String
-    ): List<QQPetDirectBridge.HireableFriend> {
-        if (!enableHireFriend) return emptyList()
-        val selectedUins = loadSavedHireFriendUins(context)
-        if (selectedUins.isEmpty()) {
-            return emptyList()
-        }
+   private suspend fun selectBestHireCandidatesAwait(
+       context: Context,
+       ownPetId: String
+   ): List<QQPetDirectBridge.HireableFriend> {
+       if (!enableHireFriend) return emptyList()
+       val selectedUins = loadSavedHireFriendUins(context)
+       if (selectedUins.isEmpty()) {
+           sendLog(context, "ℹ️ [打工雇佣] 已开启雇佣好友，但当前未勾选好友白名单，本次执行单人打工")
+           return emptyList()
+       }
 
-        var allFriends = loadCachedHireableFriends(context)
-        val cachedUinSet = allFriends.map { it.uin }.toSet()
-        if (!selectedUins.all { cachedUinSet.contains(it) }) {
-            allFriends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
-        }
+       var allFriends = loadCachedHireableFriends(context)
+       val hasAllValidPets = selectedUins.all { uin -> allFriends.any { it.uin == uin && it.petId.isNotBlank() } }
+       if (!hasAllValidPets) {
+           allFriends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
+       }
 
-        val matched = allFriends.filter { it.uin in selectedUins && it.petId.isNotBlank() && it.petId != ownPetId }
+       val matched = allFriends.filter { it.uin in selectedUins && it.petId.isNotBlank() && it.petId != ownPetId }
         if (matched.isEmpty()) {
             sendLog(context, "ℹ️ [打工雇佣] 已勾选 ${selectedUins.size} 位白名单好友，暂未匹配到有效宠物 ID，本次执行单人打工")
             return emptyList()
