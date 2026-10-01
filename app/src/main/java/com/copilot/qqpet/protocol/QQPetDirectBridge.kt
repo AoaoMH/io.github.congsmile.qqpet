@@ -1,7 +1,7 @@
 package com.copilot.qqpet.protocol
 
 import android.util.Base64
-import android.util.Log
+import com.copilot.qqpet.hook.HookLog as Log
 import com.copilot.qqpet.engine.AccountSessionGuard
 import java.nio.charset.StandardCharsets
 import java.lang.reflect.Constructor

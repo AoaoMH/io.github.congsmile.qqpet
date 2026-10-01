@@ -2,7 +2,7 @@ package com.copilot.qqpet.engine
 
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.copilot.qqpet.hook.HookLog as Log
 import com.copilot.qqpet.protocol.QQPetDirectBridge
 import com.copilot.qqpet.ui.PreferencesHelper
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +53,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         @Volatile var enableClaimCoinBag = true
         @Volatile var enableFatigueToAdventure = true
        @Volatile var prefHumanLikeSleep = true
+       @Volatile var prefNightSleepMode = true
        @Volatile var prefHideQQSettingEntry = false
        @Volatile var prefDebugLog = false
        @Volatile var enableHireFriend = true
@@ -520,6 +521,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            prefCareEnergyThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
            prefCareCleanThreshold = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
            prefHumanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+           prefNightSleepMode = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
            prefHideQQSettingEntry = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
            prefDebugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
            enableHireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
@@ -594,6 +596,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        careEnergyThreshold: Int = prefCareEnergyThreshold,
        careCleanThreshold: Int = prefCareCleanThreshold,
        humanLikeSleep: Boolean = prefHumanLikeSleep,
+       nightSleepMode: Boolean = prefNightSleepMode,
        hideQQSettingEntry: Boolean = prefHideQQSettingEntry,
        debugLog: Boolean = prefDebugLog,
        hireFriend: Boolean = enableHireFriend,
@@ -620,6 +623,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        prefCareEnergyThreshold = careEnergyThreshold
        prefCareCleanThreshold = careCleanThreshold
        prefHumanLikeSleep = humanLikeSleep
+       prefNightSleepMode = nightSleepMode
        prefHideQQSettingEntry = hideQQSettingEntry
        prefDebugLog = debugLog
        enableHireFriend = hireFriend
@@ -668,6 +672,14 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
 
     private suspend fun executeMasterCycle(context: Context): Long {
         reloadConfig(context)
+        if (prefNightSleepMode && StealthScheduler.isNightSilentWindow(true)) {
+            val sleepMs = StealthScheduler.calculateNightSleepMillis()
+            val hours = sleepMs / (3600 * 1000L)
+            val mins = (sleepMs % (3600 * 1000L)) / (60 * 1000L)
+            currentStatusText = "夜间拟人静默中 · 早晨恢复"
+            sendLog(context, "🌙 [夜间静默] 当前处于深夜防风控窗口 (01:30~06:30)，暂停所有后台唤醒与轮转，预计 ${hours}小时${mins}分后恢复")
+            return sleepMs
+        }
         if (!bridge.isReady) {
             currentStatusText = "发包代理连接中..."
             sendLog(context, "⏳ [挂起] QQ 内部发包代理尚未就绪，等待 10 秒...")
@@ -875,7 +887,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            val rem = storyStatus.remaining ?: 30L
            val sleepSec = StealthScheduler.calculateTaskSleepSeconds(rem, prefHumanLikeSleep)
            val minText = String.format(java.util.Locale.CHINA, "%.1f", sleepSec / 60.0)
-           sendLog(context, "⏳ [在途任务] 宠物正在进行任务中，动态拟人休眠 ${sleepSec} 秒 (~${minText} 分钟)")
+           sendLog(context, "⏳ [在途任务] 宠物正在进行任务中，精准拟人休眠 ${sleepSec} 秒 (~${minText} 分钟) 直至完成")
            return sleepSec * 1000L
        }
 

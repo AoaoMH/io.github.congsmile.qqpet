@@ -254,6 +254,7 @@ class HookEntry : IXposedHookLoadPackage {
                            val careEnergyThreshold = if (intent.hasExtra("extra_care_energy_threshold")) intent.getIntExtra("extra_care_energy_threshold", 60) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
                            val careCleanThreshold = if (intent.hasExtra("extra_care_clean_threshold")) intent.getIntExtra("extra_care_clean_threshold", 60) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
                           val humanLikeSleep = if (intent.hasExtra("extra_human_like_sleep")) intent.getBooleanExtra("extra_human_like_sleep", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+                          val nightSleep = if (intent.hasExtra("extra_night_sleep_mode")) intent.getBooleanExtra("extra_night_sleep_mode", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
                           val hideSetting = if (intent.hasExtra("extra_hide_qq_setting_entry")) intent.getBooleanExtra("extra_hide_qq_setting_entry", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
                          val debugLog = if (intent.hasExtra("extra_debug_log")) intent.getBooleanExtra("extra_debug_log", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_DEBUG_LOG, false)
                          val hireFriend = if (intent.hasExtra("extra_hire_friend_enabled")) intent.getBooleanExtra("extra_hire_friend_enabled", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
@@ -264,7 +265,7 @@ class HookEntry : IXposedHookLoadPackage {
 
                          HookLog.isDebugEnabled = debugLog
 
-                         globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, hideSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
+                         globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, nightSleep, hideSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
                          try {
                              val editor = prefs.edit()
                               if (intent.hasExtra("extra_study")) editor.putBoolean("key_study", study)
@@ -285,6 +286,7 @@ class HookEntry : IXposedHookLoadPackage {
                                if (intent.hasExtra("extra_care_energy_threshold")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, careEnergyThreshold)
                                if (intent.hasExtra("extra_care_clean_threshold")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, careCleanThreshold)
                               if (intent.hasExtra("extra_human_like_sleep")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, humanLikeSleep)
+                              if (intent.hasExtra("extra_night_sleep_mode")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_NIGHT_SLEEP_MODE, nightSleep)
                               if (intent.hasExtra("extra_hide_qq_setting_entry")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, hideSetting)
                              if (intent.hasExtra("extra_debug_log")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_DEBUG_LOG, debugLog)
                              if (intent.hasExtra("extra_hire_friend_enabled")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, hireFriend)

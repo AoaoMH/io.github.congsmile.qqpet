@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.PowerManager
-import android.util.Log
 import com.copilot.qqpet.hook.HookLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +21,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 object WakeLockHelper {
     private const val TAG = "QQPetWakeLock"
-    private const val ACTION_WAKEUP_ALARM = "io.github.congsmile.qqpet.ACTION_WAKEUP_ALARM"
+    private const val ACTION_WAKEUP_ALARM = "com.tencent.mobileqq.action.PET_WAKE_TIMER"
+    private const val WAKELOCK_TAG_PREFIX = "MobileQQ:NetFlow_"
     private const val REQUEST_CODE_ALARM = 10099
 
     @Volatile
@@ -34,8 +34,8 @@ object WakeLockHelper {
     private val wakeupReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_WAKEUP_ALARM) {
-                HookLog.log(TAG, "⏰ 收到系统精准硬件闹钟唤醒广播，CPU 复苏，拉起巡检协程！")
-                acquireTransientWakeLock(context, "AlarmBroadcast", 8_000L)
+                HookLog.log(TAG, "⏰ 收到系统定时唤醒广播，CPU 复苏，拉起巡检协程！")
+                acquireTransientWakeLock(context, "AlarmSync", 8_000L)
                 try {
                     currentDeferred?.complete(Unit)
                 } catch (_: Throwable) {}
@@ -63,16 +63,23 @@ object WakeLockHelper {
         }
     }
 
+    fun wakeUpImmediately() {
+        try {
+            currentDeferred?.complete(Unit)
+        } catch (_: Throwable) {}
+    }
+
     fun acquireTransientWakeLock(context: Context?, tag: String, timeoutMs: Long = 15_000L) {
         if (context == null) return
         try {
             val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
-            val lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "QQPetCopilot:$tag")
+            val lockTag = "$WAKELOCK_TAG_PREFIX$tag"
+            val lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, lockTag)
             lock.setReferenceCounted(false)
             lock.acquire(timeoutMs)
-            Log.d(TAG, "已获取瞬态唤醒锁 ($tag, 限时 ${timeoutMs}ms)")
+            HookLog.log(TAG, "已获取瞬态唤醒锁 ($lockTag, 限时 ${timeoutMs}ms)")
         } catch (t: Throwable) {
-            Log.w(TAG, "获取唤醒锁失败: ${t.message}")
+            HookLog.log(TAG, "获取唤醒锁失败: ${t.message}")
         }
     }
 
@@ -147,7 +154,8 @@ object WakeLockHelper {
         var lock: PowerManager.WakeLock? = null
         try {
             val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            lock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "QQPetCopilot:$tag")?.apply {
+            val lockTag = "$WAKELOCK_TAG_PREFIX$tag"
+            lock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, lockTag)?.apply {
                 setReferenceCounted(false)
                 acquire(timeoutMs)
             }

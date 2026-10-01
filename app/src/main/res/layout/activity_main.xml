@@ -301,6 +301,13 @@
                     android:textColor="@color/text_primary" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchNightSleep"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="夜间防风控静默 (01:30~06:30)"
+                    android:textColor="@color/text_primary" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/switchHideQQSetting"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

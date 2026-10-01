@@ -1,16 +1,46 @@
 package com.copilot.qqpet.engine
 
+import java.util.Calendar
 import kotlin.random.Random
 
 /**
- * 抗风控隐身调度器：提供随机 1~3 分钟拟人休眠、按需延时抖动与隐身开关判定
+ * 抗风控隐身调度器：提供长任务精准休眠、夜间防风控静默、按需延时抖动与隐身开关判定
  */
 object StealthScheduler {
 
     /**
+     * 判断当前是否处于夜间防风控静默窗口 (默认 01:30 ~ 06:30)
+     */
+    fun isNightSilentWindow(enabled: Boolean = true): Boolean {
+        if (!enabled) return false
+        val cal = Calendar.getInstance()
+        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val minute = cal.get(Calendar.MINUTE)
+        val currentMinutes = hour * 60 + minute
+        return currentMinutes in 90..390
+    }
+
+    /**
+     * 计算夜间静默休眠毫秒数 (睡到早晨 06:35 ~ 06:55 唤醒)
+     */
+    fun calculateNightSleepMillis(): Long {
+        val cal = Calendar.getInstance()
+        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val minute = cal.get(Calendar.MINUTE)
+        val currentMinutes = hour * 60 + minute
+        val wakeTargetMinutes = 390 + Random.nextInt(5, 26)
+        val diffMinutes = if (wakeTargetMinutes > currentMinutes) {
+            wakeTargetMinutes - currentMinutes
+        } else {
+            (1440 - currentMinutes) + wakeTargetMinutes
+        }
+        return diffMinutes * 60 * 1000L
+    }
+
+    /**
      * 计算在途任务休眠秒数
      * @param remainingSeconds 任务剩余秒数
-     * @param humanLikeEnabled 是否开启自选拟人休眠（默认开启，随机 1~3 分钟）
+     * @param humanLikeEnabled 是否开启自选拟人休眠
      */
     fun calculateTaskSleepSeconds(
         remainingSeconds: Long?,
@@ -26,12 +56,11 @@ object StealthScheduler {
         }
 
         return if (humanLikeEnabled) {
-            if (remainingSeconds <= 180) {
-                // 任务即将结束（3 分钟内），睡到任务结束并加随机 5~25 秒拟人操作延迟
-                remainingSeconds + Random.nextLong(5, 26)
+            val clampedRemaining = minOf(remainingSeconds, 15000L)
+            if (clampedRemaining <= 60) {
+                clampedRemaining + Random.nextLong(5, 16)
             } else {
-                // 长期在途任务：单次休眠随机 1~3 分钟 (60~180 秒)，既不失联又大幅降低轮询频次
-                Random.nextLong(60, 181)
+                clampedRemaining + Random.nextLong(10, 36)
             }
         } else {
             // 关闭拟人休眠时的常规保底

@@ -141,6 +141,7 @@ class MainActivity : AppCompatActivity() {
        binding.switchAdventure.isChecked = prefs.getBoolean(PreferencesHelper.KEY_ADVENTURE, false)
         binding.switchSettle.isChecked = prefs.getBoolean(PreferencesHelper.KEY_SETTLE, true)
         binding.switchHumanLikeSleep.isChecked = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+        binding.switchNightSleep.isChecked = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
         binding.switchHideQQSetting.isChecked = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
         binding.switchDebugLog.isChecked = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
 
@@ -173,6 +174,10 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, isChecked).apply()
             syncConfigToQQ()
         }
+        binding.switchNightSleep.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, isChecked).apply()
+            syncConfigToQQ()
+        }
         binding.switchHideQQSetting.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, isChecked).apply()
             syncConfigToQQ()
@@ -197,6 +202,7 @@ class MainActivity : AppCompatActivity() {
        val claimCoinBag = prefs.getBoolean(PreferencesHelper.KEY_CLAIM_COINBAG, true)
        val fatigueToAdv = prefs.getBoolean(PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true)
        val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+       val nightSleep = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
        val hideSetting = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
        val debugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
 
@@ -215,6 +221,7 @@ class MainActivity : AppCompatActivity() {
                putExtra("extra_claim_coinbag", claimCoinBag)
                putExtra("extra_fatigue_to_adventure", fatigueToAdv)
                putExtra("extra_human_like_sleep", humanLikeSleep)
+               putExtra("extra_night_sleep_mode", nightSleep)
                putExtra("extra_hide_qq_setting_entry", hideSetting)
                putExtra("extra_debug_log", debugLog)
            }

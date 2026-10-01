@@ -26,4 +26,9 @@ object HookLog {
             } catch (_: Throwable) {}
         }
     }
+
+    fun d(tag: String, msg: String) = log(tag, msg)
+    fun i(tag: String, msg: String) = log(tag, msg)
+    fun w(tag: String, msg: String) = log(tag, msg)
+    fun e(tag: String, msg: String, t: Throwable? = null) = log(tag, if (t != null) "$msg: ${t.message}" else msg)
 }
