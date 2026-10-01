@@ -11,7 +11,6 @@ import android.util.Log
 import com.copilot.qqpet.engine.PetAdventureEngine
 import com.copilot.qqpet.engine.StealthScheduler
 import com.copilot.qqpet.hook.HookLog
-import com.copilot.qqpet.hook.NetworkSecurityShield
 import com.copilot.qqpet.hook.QQSettingInjector
 import com.copilot.qqpet.protocol.PacketSniffer
 import com.copilot.qqpet.protocol.QQPetDirectBridge
@@ -145,8 +144,7 @@ class HookEntry : IXposedHookLoadPackage {
             HookLog.isDebugEnabled = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
         } catch (_: Throwable) {}
 
-        // 安装网络安全防风控告密拦截盾与防踢下线保护
-        NetworkSecurityShield.install(classLoader)
+        // 底层图灵盾与协议安全上报保持 100% 原生纯净放行，防范设备指纹缺失与探针超时引发的云端踢出
 
         if (globalEngine == null || globalBridge?.isReady != true) {
             try {
