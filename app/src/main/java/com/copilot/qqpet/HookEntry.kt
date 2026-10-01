@@ -272,10 +272,11 @@ class HookEntry : IXposedHookLoadPackage {
                         val friendCareClean = if (intent.hasExtra("extra_friend_care_clean_threshold")) intent.getIntExtra("extra_friend_care_clean_threshold", 60) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
                         val autoPk = if (intent.hasExtra("extra_auto_pk")) intent.getBooleanExtra("extra_auto_pk", false) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_AUTO_PK, false)
                         val pkBlacklistUinsCsv = if (intent.hasExtra("extra_pk_blacklist_uins")) (intent.getStringExtra("extra_pk_blacklist_uins") ?: "") else (prefs.getString(com.copilot.qqpet.ui.PreferencesHelper.KEY_PK_BLACKLIST_UINS, "") ?: "")
+                        val hiredRecallProgress = if (intent.hasExtra("extra_hired_recall_progress")) intent.getIntExtra("extra_hired_recall_progress", 72) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
 
                        HookLog.isDebugEnabled = debugLog
 
-                        globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, nightSleep, screenOffSilent, hideSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv)
+                        globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, nightSleep, screenOffSilent, hideSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecallProgress)
                        try {
                             val editor = prefs.edit()
                               if (intent.hasExtra("extra_study")) editor.putBoolean("key_study", study)
@@ -307,6 +308,7 @@ class HookEntry : IXposedHookLoadPackage {
                             if (intent.hasExtra("extra_friend_care_clean_threshold")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, friendCareClean)
                             if (intent.hasExtra("extra_auto_pk")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_AUTO_PK, autoPk)
                             if (intent.hasExtra("extra_pk_blacklist_uins")) editor.putString(com.copilot.qqpet.ui.PreferencesHelper.KEY_PK_BLACKLIST_UINS, pkBlacklistUinsCsv)
+                            if (intent.hasExtra("extra_hired_recall_progress")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, hiredRecallProgress)
                             editor.commit()
                         } catch (_: Throwable) {}
                           HookLog.log(TAG, "跨进程配置更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 隐身=$hideSetting, 调试日志=$debugLog")

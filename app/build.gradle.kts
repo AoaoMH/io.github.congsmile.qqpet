@@ -12,9 +12,9 @@ android {
        applicationId = "io.github.congsmile.qqpet"
        minSdk = 26
        targetSdk = 34
-        versionCode = 58
+        versionCode = 59
         // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.56)
-        versionName = "1.0.57"
+        versionName = "1.0.58"
     }
 
    buildTypes {

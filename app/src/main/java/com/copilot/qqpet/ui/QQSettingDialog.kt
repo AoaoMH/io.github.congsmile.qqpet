@@ -1037,6 +1037,52 @@ object QQSettingDialog {
         hireWhitelistRow.addView(hireWhitelistAction)
         workPanel.addView(hireWhitelistRow)
 
+        val hiredRecallLabels = listOf("关闭", "12% 稳一档", "42% 稳二档", "72% 最高收益")
+        val hiredRecallValues = listOf(0, 12, 42, 72)
+        var curHiredRecall = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
+
+        fun getHiredRecallDesc(progress: Int): String = when (progress) {
+            12 -> "进度达到 12% 提前召回 · 稳拿 25% 基础工资 + 25% 增益分成 (极速周转)"
+            42 -> "进度达到 42% 提前召回 · 稳拿 60% 基础工资 + 50% 增益分成 (均衡收益)"
+            72 -> "进度达到 72% 提前召回 · 稳拿 100% 全额工资 + 75% 顶格增益 (最推荐)"
+            else -> "不提前召回 · 随事件自然结束 (注意：未召回增益分成缩水至 10%)"
+        }
+
+        val hiredRecallRow = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(context, 8), 0, dp(context, 4))
+        }
+        val hiredRecallTitle = TextView(context).apply {
+            text = "被雇佣打工提前召回 (锁定官方高额增益奖金)"
+            textSize = 13.5f
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setTextColor(colors.primaryText)
+        }
+        val hiredRecallDesc = TextView(context).apply {
+            text = getHiredRecallDesc(curHiredRecall)
+            textSize = 12f
+            setTextColor(colors.secondaryText)
+            setPadding(0, dp(context, 2), 0, dp(context, 6))
+        }
+        hiredRecallRow.addView(hiredRecallTitle)
+        hiredRecallRow.addView(hiredRecallDesc)
+
+        val hiredRecallIndex = hiredRecallValues.indexOf(curHiredRecall).let { if (it >= 0) it else 3 }
+        val hiredRecallSeg = AppleSegmentedControl(
+            context,
+            hiredRecallLabels,
+            hiredRecallIndex,
+            isNight = colors.isNight
+        ) { sel ->
+            val v = hiredRecallValues.getOrElse(sel) { 72 }
+            curHiredRecall = v
+            prefs.edit().putInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, v).commit()
+            hiredRecallDesc.text = getHiredRecallDesc(curHiredRecall)
+            syncConfig(prefs, engine, context)
+        }
+        hiredRecallRow.addView(hiredRecallSeg)
+        workPanel.addView(hiredRecallRow)
+
         val workInitialChecked = prefs.getBoolean("key_work", true)
         val workSwitch = AppleSwitchView(context, colors.isNight).apply {
             setCheckedImmediately(workInitialChecked)
@@ -2873,10 +2919,11 @@ object QQSettingDialog {
      val friendCareClean = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
       val autoPk = prefs.getBoolean(PreferencesHelper.KEY_AUTO_PK, false)
       val pkBlacklistUinsCsv = PetAdventureEngine.loadSavedPkBlacklistUins(context).joinToString(",")
+      val hiredRecall = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
 
-      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv)
+      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecall)
      if (engine != null && engine !== HookEntry.globalEngine) {
-          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv)
+          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecall)
      }
      val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
@@ -2909,6 +2956,7 @@ object QQSettingDialog {
           putExtra("extra_friend_care_clean_threshold", friendCareClean)
           putExtra("extra_auto_pk", autoPk)
           putExtra("extra_pk_blacklist_uins", pkBlacklistUinsCsv)
+          putExtra("extra_hired_recall_progress", hiredRecall)
      }
      context.sendBroadcast(intent)
    }

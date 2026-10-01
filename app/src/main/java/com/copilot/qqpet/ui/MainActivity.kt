@@ -722,6 +722,7 @@ class MainActivity : AppCompatActivity() {
        val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
        val hireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
        val autoPk = prefs.getBoolean(PreferencesHelper.KEY_AUTO_PK, false)
+       val hiredRecall = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
        val pkBlacklistCsv = prefs.getString(PreferencesHelper.KEY_PK_BLACKLIST_UINS, "") ?: ""
       val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
        val nightSleep = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
@@ -753,6 +754,7 @@ class MainActivity : AppCompatActivity() {
                putExtra("extra_hire_friend_enabled", hireFriend)
                putExtra("extra_auto_pk", autoPk)
                putExtra("extra_pk_blacklist_uins", pkBlacklistCsv)
+               putExtra("extra_hired_recall_progress", hiredRecall)
                putExtra("extra_human_like_sleep", humanLikeSleep)
                putExtra("extra_night_sleep_mode", nightSleep)
                putExtra("extra_screen_off_silent", screenOffSilent)

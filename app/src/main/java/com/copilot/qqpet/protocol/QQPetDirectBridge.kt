@@ -103,7 +103,8 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
        val isFatigued: Boolean,
        val tipText: String? = null,
        val eventType: Int = 0,
-       val errorMsg: String? = null
+       val errorMsg: String? = null,
+       val isHired: Boolean = false
    )
 
    data class HireableFriend(
@@ -470,10 +471,13 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                     TAG,
                     "queryProcessStoryInfo 回包: storyId=$storyId, eventType=$eventType, fatigued=$fatigued, tip='$displayTip', rawTip=(content='$tipContent', md='$tipMarkdown')"
                 )
-                callback(ProcessStoryFatigueResult(0, fatigued, displayTip, eventType, null))
+                val isHired = allStrings.any { s ->
+                    s.contains("被雇佣") || s.contains("雇佣者") || s.contains("被雇佣者") || s.contains("基础工资") || s.contains("加成奖金") || s.contains("可获得基础工资")
+                }
+                callback(ProcessStoryFatigueResult(0, fatigued, displayTip, eventType, null, isHired))
             } else {
                 Log.w(TAG, "queryProcessStoryInfo 失败: storyId=$storyId, code=$code, err=$errorMsg")
-                callback(ProcessStoryFatigueResult(code, false, null, 0, errorMsg))
+                callback(ProcessStoryFatigueResult(code, false, null, 0, errorMsg, false))
             }
         }
     }
