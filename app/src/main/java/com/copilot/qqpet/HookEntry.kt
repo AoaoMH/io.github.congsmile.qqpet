@@ -11,6 +11,7 @@ import android.util.Log
 import com.copilot.qqpet.engine.PetAdventureEngine
 import com.copilot.qqpet.engine.StealthScheduler
 import com.copilot.qqpet.hook.HookLog
+import com.copilot.qqpet.hook.NetworkSecurityShield
 import com.copilot.qqpet.hook.QQSettingInjector
 import com.copilot.qqpet.protocol.PacketSniffer
 import com.copilot.qqpet.protocol.QQPetDirectBridge
@@ -144,6 +145,9 @@ class HookEntry : IXposedHookLoadPackage {
             HookLog.isDebugEnabled = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
         } catch (_: Throwable) {}
 
+        // 安装网络安全防风控告密拦截盾与防踢下线保护
+        NetworkSecurityShield.install(classLoader)
+
         if (globalEngine == null || globalBridge?.isReady != true) {
             try {
                 val bridge = QQPetDirectBridge(classLoader)
@@ -233,6 +237,11 @@ class HookEntry : IXposedHookLoadPackage {
             }
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(ctx: Context, intent: Intent) {
+                   val callingPkg = intent.`package`
+                   if (callingPkg != null && callingPkg != MODULE_PACKAGE && callingPkg != TARGET_PACKAGE) {
+                       HookLog.log(TAG, "拒收未受信任来源的跨进程广播: $callingPkg")
+                       return
+                   }
                    when (intent.action) {
                        ACTION_UPDATE_CONFIG -> {
                            val prefs = ctx.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)

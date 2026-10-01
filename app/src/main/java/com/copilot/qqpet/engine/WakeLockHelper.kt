@@ -106,25 +106,28 @@ object WakeLockHelper {
         val triggerAtMillis = System.currentTimeMillis() + durationMs
         var alarmScheduled = false
 
-        try {
-            if (alarmManager != null) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                } else {
-                    alarmManager.setExact(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
+        // 仅对超过 3 分钟的长任务调度系统级硬件闹钟，短任务 (< 180s) 纯走瞬态锁与轻量挂起，避免被系统记录频繁 Exact Alarm 异常
+        if (durationMs >= 180_000L) {
+            try {
+                if (alarmManager != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    } else {
+                        alarmManager.setExact(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    }
+                    alarmScheduled = true
                 }
-                alarmScheduled = true
+            } catch (t: Throwable) {
+                HookLog.log(TAG, "设置 AlarmManager 失败，回退纯协程等待: ${t.message}")
             }
-        } catch (t: Throwable) {
-            HookLog.log(TAG, "设置 AlarmManager 失败，回退纯协程等待: ${t.message}")
         }
 
         val deferred = CompletableDeferred<Unit>()

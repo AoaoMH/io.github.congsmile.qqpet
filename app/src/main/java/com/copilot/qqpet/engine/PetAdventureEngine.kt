@@ -2384,9 +2384,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            if (code == 0 && members.isNotEmpty()) {
                syncTodayLikedUins(context)
                val toLike = members.filter { it.canLikeBack && !todayLikedUins.contains(it.uin) }
-               if (toLike.isNotEmpty()) {
+               val batchLike = toLike.take(5)
+               if (batchLike.isNotEmpty()) {
                    var successCount = 0
-                   for (m in toLike) {
+                   for (m in batchLike) {
                        val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
                        val (lCode, lErr) = sendLikeAwait(m.uin)
                       if (lCode == 0 || lCode == 136202) {
@@ -2394,14 +2395,14 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                           if (lCode == 0) {
                               successCount++
                               sendLog(context, "✅ [自动互踩] 成功回踩好友 $name！")
-                               randomHumanDelay(1500L, 2500L)
+                               randomHumanDelay(2000L, 3500L)
                           } else {
                               Log.i(TAG, "自动回踩好友 $name 今日已互踩过 (已登记防重)")
-                               randomHumanDelay(1000L, 1800L)
+                               randomHumanDelay(1500L, 2500L)
                           }
                       } else {
                           Log.i(TAG, "自动回踩好友 $name 回包: code=$lCode ${lErr ?: ""}")
-                           randomHumanDelay(1200L, 2000L)
+                           randomHumanDelay(1800L, 2800L)
                       }
                    }
                     if (successCount > 0) {
@@ -2542,7 +2543,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             val pendingBags = if (isManual) {
                 allBags
             } else {
-                allBags.filter { !todayClaimedBagIds.contains(it.coinbagId) }
+                allBags.filter { !todayClaimedBagIds.contains(it.coinbagId) }.take(5)
             }
 
             if (pendingBags.isEmpty()) {
@@ -2585,7 +2586,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                        sendLog(context, "ℹ️ [好友福袋] 拆取 $friendName 福袋回包: code=${res.code} ${res.errorMsg ?: ""}")
                    }
                }
-                randomHumanDelay(1500L, 2600L)
+                randomHumanDelay(2200L, 3800L)
            }
 
            if (claimedCount > 0) {
@@ -2793,7 +2794,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             )
            val friends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
                .filter { it.uin > 0L && it.petId.isNotBlank() && it.petId != ownPetId }
-                .take(15) // 单轮最多巡检 15 位好友，避免大面积发包被风控时序聚类
+                .take(if (isManual) 12 else 5) // 单轮平摊最多巡检 5 位好友，彻底避免突发大面积发包被风控时序聚类
 
            if (friends.isEmpty()) {
                sendLog(context, "ℹ️ [好友照料] 暂未发现可照料的养宠好友")
@@ -2839,7 +2840,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                        fedFriendCount++
                        sendLog(context, "✅ [好友喂食] 已帮好友「$friendName」的「$petName」补充体力至 $newEnergy/$maxEnergy")
                    }
-                    randomHumanDelay(1500L, 2500L)
+                    randomHumanDelay(2500L, 4500L)
                }
 
                if (needBath) {
