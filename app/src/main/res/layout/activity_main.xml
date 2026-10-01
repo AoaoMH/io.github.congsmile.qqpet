@@ -599,16 +599,36 @@
                     <LinearLayout
                         android:id="@+id/containerWorkDuration"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <!-- 被雇佣打工提前召回 (常驻自选配置，不受自主打工开关影响) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="12dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="被雇佣打工提前召回 (锁定官方高额奖金)"
+                        android:text="被雇佣打工提前召回 (自选进度锁定奖金)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13.5sp"
+                        android:layout_marginBottom="2dp" />
+
+                    <TextView
+                        android:id="@+id/tvHiredRecallDesc"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="进度达到 72% 提前召回 · 稳拿 100% 全额工资 + 75% 顶格增益 (默认推荐)"
                         android:textColor="@color/text_secondary"
                         android:textSize="11.5sp"
-                        android:layout_marginBottom="4dp" />
+                        android:layout_marginBottom="6dp" />
+
                     <LinearLayout
                         android:id="@+id/containerHiredRecall"
                         android:layout_width="match_parent"

@@ -1037,7 +1037,7 @@ object QQSettingDialog {
         hireWhitelistRow.addView(hireWhitelistAction)
         workPanel.addView(hireWhitelistRow)
 
-        val hiredRecallLabels = listOf("关闭", "12% 稳一档", "42% 稳二档", "72% 最高收益")
+        val hiredRecallLabels = listOf("关闭", "12% 极速", "42% 均衡", "72% 顶格")
         val hiredRecallValues = listOf(0, 12, 42, 72)
         if (!prefs.contains(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS)) {
             try { prefs.edit().putInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72).commit() } catch (_: Throwable) {}
@@ -1047,8 +1047,8 @@ object QQSettingDialog {
         fun getHiredRecallDesc(progress: Int): String = when (progress) {
             12 -> "进度达到 12% 提前召回 · 稳拿 25% 基础工资 + 25% 增益分成 (极速周转)"
             42 -> "进度达到 42% 提前召回 · 稳拿 60% 基础工资 + 50% 增益分成 (均衡收益)"
-            72 -> "进度达到 72% 提前召回 · 稳拿 100% 全额工资 + 75% 顶格增益 (最推荐)"
-            else -> "不提前召回 · 随事件自然结束 (注意：未召回增益分成缩水至 10%)"
+            72 -> "进度达到 72% 提前召回 · 稳拿 100% 全额工资 + 75% 顶格增益 (默认推荐)"
+            else -> "关闭提前召回 · 随事件自然结束 (注意：未召回增益分成缩水至 10%)"
         }
 
         val hiredRecallRow = LinearLayout(context).apply {
@@ -1056,7 +1056,7 @@ object QQSettingDialog {
             setPadding(0, dp(context, 8), 0, dp(context, 4))
         }
         val hiredRecallTitle = TextView(context).apply {
-            text = "被雇佣打工提前召回 (锁定官方高额增益奖金)"
+            text = "被雇佣打工提前召回 (自选进度锁定奖金)"
             textSize = 13.5f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             setTextColor(colors.primaryText)
@@ -1084,7 +1084,6 @@ object QQSettingDialog {
             syncConfig(prefs, engine, context)
         }
         hiredRecallRow.addView(hiredRecallSeg)
-        workPanel.addView(hiredRecallRow)
 
         val workInitialChecked = prefs.getBoolean("key_work", true)
         val workSwitch = AppleSwitchView(context, colors.isNight).apply {
@@ -1101,6 +1100,15 @@ object QQSettingDialog {
             workPanel.visibility = View.GONE
         }
         autoGroupCard.addView(workPanel)
+
+        // 被雇佣打工提前召回 (常驻自选配置，不受自主打工开关影响，默认 72% 顶格，自由可选)
+        autoGroupCard.addView(View(context).apply {
+            setBackgroundColor(colors.dividerColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                setMargins(0, dp(context, 8), 0, dp(context, 4))
+            }
+        })
+        autoGroupCard.addView(hiredRecallRow)
         contentLayout.addView(autoGroupCard)
 
         // ================= 4. 分组二：日常起居与历练 =================

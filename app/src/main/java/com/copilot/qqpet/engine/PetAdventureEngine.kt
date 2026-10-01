@@ -740,7 +740,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        prefPkBlacklistUinsCsv = pkBlacklistUinsCsv
        prefHiredRecallProgress = hiredRecallProgress
        com.copilot.qqpet.hook.HookLog.isDebugEnabled = debugLog
-       Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold, 好友照料=$friendCareEnabled($friendCareEnergyThreshold/$friendCareCleanThreshold)")
+       Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold, 好友照料=$friendCareEnabled($friendCareEnergyThreshold/$friendCareCleanThreshold), 雇佣召回=${if (hiredRecallProgress > 0) "${hiredRecallProgress}%" else "关闭"}")
    }
 
     fun sendReadySignal(context: Context) {

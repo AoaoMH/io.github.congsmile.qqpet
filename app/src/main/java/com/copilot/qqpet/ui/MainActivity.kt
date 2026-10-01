@@ -455,10 +455,19 @@ class MainActivity : AppCompatActivity() {
         binding.containerWorkDuration.removeAllViews()
         binding.containerWorkDuration.addView(workDurationControl)
 
-        // 5.5 被雇佣打工提前召回分段器 (关闭, 12%, 42%, 72%) 默认开启 72% 顶格收益
-        val hiredRecallLabels = listOf("关闭", "12%", "42%", "72%顶格")
+        // 5.5 被雇佣打工提前召回分段器 (关闭, 12%, 42%, 72%) 默认开启 72% 顶格收益，自由可选
+        val hiredRecallLabels = listOf("关闭", "12% 极速", "42% 均衡", "72% 顶格")
         val hiredRecallValues = listOf(0, 12, 42, 72)
         val currentHiredRecall = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
+
+        fun getHiredRecallSummaryText(progress: Int): String = when (progress) {
+            12 -> "进度达到 12% 提前召回 · 稳拿 25% 基础工资 + 25% 增益分成 (极速周转)"
+            42 -> "进度达到 42% 提前召回 · 稳拿 60% 基础工资 + 50% 增益分成 (均衡收益)"
+            72 -> "进度达到 72% 提前召回 · 稳拿 100% 全额工资 + 75% 顶格增益 (默认推荐)"
+            else -> "关闭提前召回 · 随事件自然结束 (注意：未召回增益分成缩水至 10%)"
+        }
+        binding.tvHiredRecallDesc.text = getHiredRecallSummaryText(currentHiredRecall)
+
         val selHiredRecallIndex = hiredRecallValues.indexOf(currentHiredRecall).let { if (it >= 0) it else 3 }
         val hiredRecallControl = AppleSegmentedControl(
             this,
@@ -467,6 +476,7 @@ class MainActivity : AppCompatActivity() {
         ) { index ->
             val v = hiredRecallValues.getOrElse(index) { 72 }
             prefs.edit().putInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, v).apply()
+            binding.tvHiredRecallDesc.text = getHiredRecallSummaryText(v)
             updateSummaries(prefs)
             syncConfigToQQ()
         }
