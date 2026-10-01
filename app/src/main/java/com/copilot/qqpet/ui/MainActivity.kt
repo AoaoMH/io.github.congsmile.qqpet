@@ -1,11 +1,15 @@
 package com.copilot.qqpet.ui
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.view.MotionEvent
+import android.view.View
+import android.view.animation.DecelerateInterpolator
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -55,9 +59,11 @@ class MainActivity : AppCompatActivity() {
     private fun initStatusCard() {
         val active = isModuleActive()
         if (active) {
+            binding.cardStatus.setCardBackgroundColor(ContextCompat.getColor(this, R.color.status_green_bg))
             binding.tvStatusTitle.text = getString(R.string.status_active)
             binding.tvStatusTitle.setTextColor(ContextCompat.getColor(this, R.color.status_green))
         } else {
+            binding.cardStatus.setCardBackgroundColor(ContextCompat.getColor(this, R.color.status_red_bg))
             binding.tvStatusTitle.text = getString(R.string.status_inactive)
             binding.tvStatusTitle.setTextColor(ContextCompat.getColor(this, R.color.status_red))
         }
@@ -88,10 +94,20 @@ class MainActivity : AppCompatActivity() {
        binding.btnClearLogs.setOnClickListener {
             binding.tvEngineLogs.text = "日志已清空，等待下次测试..."
         }
+
+        // 注入 iOS 物理触觉微动效
+        binding.btnRunCycle.applyApplePressEffect()
+        binding.btnTestCare.applyApplePressEffect()
+        binding.btnTestWork.applyApplePressEffect()
+        binding.btnTestSchool.applyApplePressEffect()
+        binding.btnTestAdventure.applyApplePressEffect()
+        binding.btnTestSettle.applyApplePressEffect()
+        binding.btnTestFriendCare.applyApplePressEffect()
+        binding.btnClearLogs.applyApplePressEffect()
     }
 
     private fun sendActionToQQ(action: String, actionName: String) {
-        appendLog("👉 [指令] 已向 QQ 下发「$actionName」广播...")
+        appendLog("[指令] 已向 QQ 下发「$actionName」调度广播...")
         try {
             val intent = Intent(HookEntry.ACTION_TRIGGER_ACTION).apply {
                 setPackage(HookEntry.TARGET_PACKAGE)
@@ -100,7 +116,7 @@ class MainActivity : AppCompatActivity() {
             sendBroadcast(intent)
             Toast.makeText(this, "已下发 $actionName 指令", Toast.LENGTH_SHORT).show()
         } catch (t: Throwable) {
-            appendLog("❌ [异常] 下发指令失败: ${t.message}")
+            appendLog("[异常] 下发指令失败: ${t.message}")
         }
     }
 
@@ -227,7 +243,32 @@ class MainActivity : AppCompatActivity() {
            }
            sendBroadcast(intent)
         } catch (t: Throwable) {
-            appendLog("❌ [同步失败] 无法下发配置广播: ${t.message}")
+            appendLog("[同步失败] 无法下发配置广播: ${t.message}")
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun View.applyApplePressEffect() {
+        setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.animate()
+                        .scaleX(0.97f)
+                        .scaleY(0.97f)
+                        .setDuration(100)
+                        .setInterpolator(DecelerateInterpolator())
+                        .start()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.animate()
+                        .scaleX(1.0f)
+                        .scaleY(1.0f)
+                        .setDuration(120)
+                        .setInterpolator(DecelerateInterpolator())
+                        .start()
+                }
+            }
+            false
         }
     }
 }
