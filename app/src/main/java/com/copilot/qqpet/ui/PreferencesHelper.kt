@@ -30,11 +30,14 @@ object PreferencesHelper {
    const val KEY_HIRE_FRIEND_ENABLED = "key_hire_friend_enabled"
    const val KEY_HIRE_FRIEND_UINS = "key_hire_friend_uins"
    const val KEY_HIRE_FRIEND_CACHE = "key_hire_friend_cache"
-   const val KEY_FRIEND_CARE_ENABLED = "key_friend_care_enabled"
-   const val KEY_FRIEND_CARE_ENERGY_THRESHOLD = "key_friend_care_energy_threshold"
-   const val KEY_FRIEND_CARE_CLEAN_THRESHOLD = "key_friend_care_clean_threshold"
+  const val KEY_FRIEND_CARE_ENABLED = "key_friend_care_enabled"
+  const val KEY_FRIEND_CARE_ENERGY_THRESHOLD = "key_friend_care_energy_threshold"
+  const val KEY_FRIEND_CARE_CLEAN_THRESHOLD = "key_friend_care_clean_threshold"
+  const val KEY_AUTO_PK = "key_auto_pk"
+  const val KEY_PK_DAILY_DATE = "key_pk_daily_date"
+  const val KEY_PK_DAILY_COUNT = "key_pk_daily_count"
 
-   fun getPrefs(context: Context): SharedPreferences {
+  fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     }
 }

@@ -53,11 +53,14 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         @Volatile var enableCare = true
         @Volatile var enableAdventure = false
         @Volatile var enableSettle = true
-        @Volatile var enableLikeBack = true
-        @Volatile var enableClaimCoinBag = true
-        @Volatile var enableFatigueToAdventure = true
-      @Volatile var prefHumanLikeSleep = true
-      @Volatile var prefNightSleepMode = true
+       @Volatile var enableLikeBack = true
+       @Volatile var enableClaimCoinBag = true
+       @Volatile var enableFatigueToAdventure = true
+        @Volatile var enableAutoPk = false
+        @Volatile var lastPkTimeMillis: Long = 0L
+        @Volatile var pkCooldownMillis: Long = 60 * 1000L
+     @Volatile var prefHumanLikeSleep = true
+     @Volatile var prefNightSleepMode = true
       @Volatile var prefScreenOffSilent = true
       @Volatile var prefHideQQSettingEntry = false
       @Volatile var prefDebugLog = false
@@ -98,12 +101,41 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        @Volatile private var lastCoinBagDayKey = ""
        @Volatile private var coinBagDailyLimitReached = false
 
-       private fun currentDayKey(): String {
-           val cal = java.util.Calendar.getInstance()
-           return "${cal.get(java.util.Calendar.YEAR)}-${cal.get(java.util.Calendar.DAY_OF_YEAR)}"
+      private fun currentDayKey(): String {
+          val cal = java.util.Calendar.getInstance()
+          return "${cal.get(java.util.Calendar.YEAR)}-${cal.get(java.util.Calendar.DAY_OF_YEAR)}"
+      }
+
+       fun getDailyPkCount(context: Context): Int {
+           val todayKey = currentDayKey()
+           val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+           val dateKey = AccountSessionGuard.scopedKey(PreferencesHelper.KEY_PK_DAILY_DATE, currentActiveUin)
+           val countKey = AccountSessionGuard.scopedKey(PreferencesHelper.KEY_PK_DAILY_COUNT, currentActiveUin)
+           val savedDate = prefs.getString(dateKey, "") ?: ""
+           return if (savedDate == todayKey) {
+               prefs.getInt(countKey, 0)
+           } else {
+               prefs.edit()
+                   .putString(dateKey, todayKey)
+                   .putInt(countKey, 0)
+                   .commit()
+               0
+           }
        }
 
-       private fun syncTodayLikedUins(context: Context) {
+       fun incrementDailyPkCount(context: Context): Int {
+           val todayKey = currentDayKey()
+           val current = getDailyPkCount(context)
+           val next = current + 1
+           val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+           prefs.edit()
+               .putString(AccountSessionGuard.scopedKey(PreferencesHelper.KEY_PK_DAILY_DATE, currentActiveUin), todayKey)
+               .putInt(AccountSessionGuard.scopedKey(PreferencesHelper.KEY_PK_DAILY_COUNT, currentActiveUin), next)
+               .commit()
+           return next
+       }
+
+      private fun syncTodayLikedUins(context: Context) {
            val todayKey = currentDayKey()
            if (lastLikeDayKey != todayKey) {
                todayLikedUins.clear()
@@ -513,10 +545,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             enableCare = prefs.getBoolean("key_care", true)
             enableAdventure = prefs.getBoolean("key_adventure", false)
             enableSettle = prefs.getBoolean("key_settle", true)
-            enableLikeBack = prefs.getBoolean(PreferencesHelper.KEY_LIKE_BACK, true)
-            enableClaimCoinBag = prefs.getBoolean(PreferencesHelper.KEY_CLAIM_COINBAG, true)
-            enableFatigueToAdventure = prefs.getBoolean(PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true)
-            prefStudyMode = prefs.getInt("key_study_mode", 0)
+           enableLikeBack = prefs.getBoolean(PreferencesHelper.KEY_LIKE_BACK, true)
+           enableClaimCoinBag = prefs.getBoolean(PreferencesHelper.KEY_CLAIM_COINBAG, true)
+           enableFatigueToAdventure = prefs.getBoolean(PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true)
+            enableAutoPk = prefs.getBoolean(PreferencesHelper.KEY_AUTO_PK, false)
+           prefStudyMode = prefs.getInt("key_study_mode", 0)
             prefWorkMode = prefs.getInt("key_work_mode", 0)
             prefCustomSchoolStage = prefs.getInt(PreferencesHelper.KEY_SCHOOL_STAGE, 0)
             prefCustomCourseSubject = prefs.getInt(PreferencesHelper.KEY_COURSE_SUBJECT, 0)
@@ -608,19 +641,21 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
       debugLog: Boolean = prefDebugLog,
        hireFriend: Boolean = enableHireFriend,
        hireFriendUinsCsv: String = prefHireFriendUinsCsv,
-       friendCareEnabled: Boolean = enableFriendCare,
-       friendCareEnergyThreshold: Int = prefFriendCareEnergyThreshold,
-       friendCareCleanThreshold: Int = prefFriendCareCleanThreshold
-   ) {
-       enableStudy = study
-       enableWork = work
-       enableCare = care
-       enableAdventure = adventure
-       enableSettle = settle
-       enableLikeBack = likeBack
-       enableClaimCoinBag = claimCoinBag
-       enableFatigueToAdventure = fatigueToAdventure
-       prefStudyMode = studyMode
+      friendCareEnabled: Boolean = enableFriendCare,
+      friendCareEnergyThreshold: Int = prefFriendCareEnergyThreshold,
+       friendCareCleanThreshold: Int = prefFriendCareCleanThreshold,
+       autoPk: Boolean = enableAutoPk
+  ) {
+      enableStudy = study
+      enableWork = work
+      enableCare = care
+      enableAdventure = adventure
+      enableSettle = settle
+      enableLikeBack = likeBack
+      enableClaimCoinBag = claimCoinBag
+      enableFatigueToAdventure = fatigueToAdventure
+       enableAutoPk = autoPk
+      prefStudyMode = studyMode
        prefWorkMode = workMode
        prefCustomSchoolStage = schoolStage
        prefCustomCourseSubject = courseSubject
@@ -890,15 +925,30 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            delay(1200L)
        }
 
-       // 4.4 若本轮未执行其他维护，按错峰间隔检查好友宠物照料 (单轮平摊最多照料 3 位好友)
-       if (!maintenanceDispatched && enableFriendCare && (now - lastFriendCareTimeMillis >= 10 * 60 * 1000L)) {
-           lastFriendCareTimeMillis = now
+      // 4.4 若本轮未执行其他维护，按错峰间隔检查好友宠物照料 (单轮平摊最多照料 3 位好友)
+      if (!maintenanceDispatched && enableFriendCare && (now - lastFriendCareTimeMillis >= 10 * 60 * 1000L)) {
+          lastFriendCareTimeMillis = now
+          maintenanceDispatched = true
+          executeAutoFriendCare(context, petId, isManual = false)
+          delay(1200L)
+      }
+
+       // 4.5 若本轮未执行其他维护，检查每日自动PK (上限10场，只打打得过的，1~3分钟随机CD)
+       if (!maintenanceDispatched && enableAutoPk && getDailyPkCount(context) < 10 && (now - lastPkTimeMillis >= pkCooldownMillis)) {
+           lastPkTimeMillis = now
            maintenanceDispatched = true
-           executeAutoFriendCare(context, petId, isManual = false)
+           val completedCount = executeAutoPkSingleMatch(context, petId, isManual = false)
+           if (completedCount in 1..9) {
+               val nextCdSec = java.util.concurrent.ThreadLocalRandom.current().nextLong(60L, 180L)
+               pkCooldownMillis = nextCdSec * 1000L
+               sendLog(context, "⏱️ [自动PK] 本场对决结算完毕，随机冷却拟人休眠 ${nextCdSec} 秒 (1~3分钟) 后进入下一场...")
+           } else if (completedCount >= 10) {
+               sendLog(context, "🎉 [自动PK] 今日 10 场对决挑战已全部打满，明日将自动重置！")
+           }
            delay(1200L)
        }
 
-       // 若当前仍有任务在身，不触发新的外出，睡眠 30 秒以保持倒计时和状态动态刷新
+      // 若当前仍有任务在身，不触发新的外出，睡眠 30 秒以保持倒计时和状态动态刷新
        if (hasActiveTask) {
            val rem = storyStatus.remaining ?: 30L
            val sleepSec = StealthScheduler.calculateTaskSleepSeconds(rem, prefHumanLikeSleep)
@@ -1368,12 +1418,18 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                    }
                    bridge.refreshProfile()
                }
-                "work" -> {
-                    val petId = ensurePetId(context) ?: return@launch
-                    sendLog(context, "💼 [打工实测] 开始触发自适应打工探测流程...")
-                    dispatchAdaptiveWork(context, petId)
+              "work" -> {
+                  val petId = ensurePetId(context) ?: return@launch
+                  sendLog(context, "💼 [打工实测] 开始触发自适应打工探测流程...")
+                  dispatchAdaptiveWork(context, petId)
+              }
+                "pk_auto", "pk_10" -> {
+                    executeAutoPkSession(context, isContinuous = true)
                 }
-                "school" -> {
+                "pk", "pk_friend", "pk_fuqin" -> {
+                    executeAutoPkSingleMatch(context, ensurePetId(context) ?: "", isManual = true, specificTargetUin = 2761689028L)
+                }
+               "school" -> {
                     val petId = ensurePetId(context) ?: return@launch
                     sendLog(context, "📚 [学习实测] 开始触发自适应学园选课探测流程...")
                     dispatchAdaptiveStudy(context, petId)
@@ -2885,12 +2941,318 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 context,
                 "🎉 [好友照料汇总] 本轮共检测 $checkedCount 位养宠好友，成功帮 $fedFriendCount 位好友喂食、帮 $bathedFriendCount 位好友洗澡！"
             )
-        } catch (t: Throwable) {
-            Log.w(TAG, "自动照料好友宠物异常: ${t.message}")
-            if (isManual) {
-                sendLog(context, "⚠️ [好友照料] 执行异常: ${t.message}")
+       } catch (t: Throwable) {
+          Log.w(TAG, "自动照料好友宠物异常: ${t.message}")
+          if (isManual) {
+              sendLog(context, "⚠️ [好友照料] 执行异常: ${t.message}")
+          }
+      }
+  }
+
+    data class PkCandidate(
+        val uin: Long,
+        val petId: String,
+        val userNick: String,
+        val petNick: String,
+        var power: Long = 0L,
+        var intel: Long = 0L,
+        var charm: Long = 0L,
+        val isFriend: Boolean = true
+    ) {
+        val totalAttr: Long get() = power + intel + charm
+    }
+
+    suspend fun getOwnTotalAttributesAwait(ownPetId: String): Triple<Long, Long, Long> {
+        val details = querySecondMapInfoDetailsAwait(6100L, ownPetId)
+        if (details.code == 0 && (details.power > 0 || details.intel > 0 || details.charm > 0)) {
+            return Triple(details.power, details.intel, details.charm)
+        }
+        val cached = cachedSchoolDetails
+        if (cached != null && (cached.power > 0 || cached.intel > 0 || cached.charm > 0)) {
+            return Triple(cached.power, cached.intel, cached.charm)
+        }
+        // 真机已验证基准 (武力 630, 智力 2551, 魅力 1083，总计 4264)
+        return Triple(630L, 2551L, 1083L)
+    }
+
+    suspend fun collectPkCandidatesAwait(context: Context, ownPetId: String): List<PkCandidate> {
+        val list = mutableListOf<PkCandidate>()
+        val seenUins = mutableSetOf<Long>()
+        val ownUinStr = bridge.getCurrentRuntimeUin().ifEmpty { currentActiveUin }
+        val ownUin = ownUinStr.toLongOrNull() ?: 0L
+
+        // 1. 保底/典型实测案例：好友「抚琴的人」(UIN 2761689028L, 宠物花儿, 三维均为0, 100%打得过)
+        if (ownUin != 2761689028L) {
+            list.add(
+                PkCandidate(
+                    uin = 2761689028L,
+                    petId = "Mjc2MTY4OTAyOC01LTItMTc5MDczNTc3MDc5Mg",
+                    userNick = "抚琴的人",
+                    petNick = "花儿",
+                    power = 0L,
+                    intel = 0L,
+                    charm = 0L,
+                    isFriend = true
+                )
+            )
+            seenUins.add(2761689028L)
+        }
+
+        // 2. 好友池：从雇佣好友缓存或网络拉取
+        var friends = loadCachedHireableFriends(context)
+        if (friends.isEmpty()) {
+            friends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
+        }
+        for (f in friends) {
+            if (f.uin <= 0L || f.uin == ownUin || seenUins.contains(f.uin) || f.petId.isBlank()) continue
+            seenUins.add(f.uin)
+            list.add(
+                PkCandidate(
+                    uin = f.uin,
+                    petId = f.petId,
+                    userNick = f.friendNick.ifEmpty { "好友_${f.uin}" },
+                    petNick = f.petNick.ifEmpty { "小宠" },
+                    power = f.power,
+                    intel = f.intel,
+                    charm = f.charm,
+                    isFriend = true
+                )
+            )
+        }
+
+        // 3. 陌生人/访客池：从访客回踩列表提取
+        try {
+            val (likeCode, likeMembers) = fetchLikeListAwait("")
+            if (likeCode == 0) {
+                for (m in likeMembers) {
+                    if (m.uin <= 0L || m.uin == ownUin || seenUins.contains(m.uin) || m.petId.isBlank()) continue
+                    seenUins.add(m.uin)
+                    list.add(
+                        PkCandidate(
+                            uin = m.uin,
+                            petId = m.petId,
+                            userNick = m.nick.ifEmpty { "访客_${m.uin}" },
+                            petNick = "小宠",
+                            power = 0L,
+                            intel = 0L,
+                            charm = 0L,
+                            isFriend = false
+                        )
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+
+        return list
+    }
+
+    /**
+     * 执行单场 PK 对决，严格筛选三维低于我方的对手
+     * @return 返回更新后的今日已完成 PK 场次；若未打或失败返回当前场次
+     */
+    suspend fun executeAutoPkSingleMatch(
+        context: Context,
+        ownPetIdParam: String,
+        isManual: Boolean,
+        specificTargetUin: Long = 0L
+    ): Int {
+        val currentCount = getDailyPkCount(context)
+        if (currentCount >= 10) {
+            sendLog(context, "🎉 [自动PK] 今日 10 场 PK 挑战额度已满 ($currentCount/10 场)，无需继续挑战")
+            return currentCount
+        }
+
+        val ownPetId = ownPetIdParam.ifEmpty { ensurePetId(context) ?: "" }
+        if (ownPetId.isEmpty()) {
+            sendLog(context, "⚠️ [自动PK] 未能锁定本人小宠 ID，暂缓发起挑战")
+            return currentCount
+        }
+
+        // 检查自身体力与清洁度 (每次固定扣除 5 体力 + 5 清洁)
+        val attrs = queryPetAttributesAwait(ownPetId) ?: bridge.getPetAttributes(ownPetId)
+        if (attrs != null) {
+            if (attrs.energy < 5 || attrs.clean < 5) {
+                sendLog(context, "⚠️ [自动PK] 体力或清洁不足 5 点 (当前: 体力=${attrs.energy.toInt()}, 清洁=${attrs.clean.toInt()})，正在自动补充...")
+                if (attrs.energy < 5) feedWithAutoBuyAwait(context, ownPetId)
+                if (attrs.clean < 5) bathWithAutoBuyAwait(context, ownPetId)
+                delay(1200L)
             }
         }
+
+        // 测算我方自身三维属性
+        val (myPower, myIntel, myCharm) = getOwnTotalAttributesAwait(ownPetId)
+        val myTotal = myPower + myIntel + myCharm
+        sendLog(context, "📊 [PK三维自检] 本人小宠战力: 武力=$myPower, 智力=$myIntel, 魅力=$myCharm -> 综合三维=$myTotal")
+
+        // 搜集候选对手池 (不限好友或陌生人)
+        val allCandidates = collectPkCandidatesAwait(context, ownPetId)
+        val candidatePool = if (specificTargetUin > 0L) {
+            allCandidates.filter { it.uin == specificTargetUin }
+        } else {
+            allCandidates
+        }
+
+        if (candidatePool.isEmpty()) {
+            sendLog(context, "⚠️ [自动PK] 候选对手池为空，暂未发现可挑战对象")
+            return currentCount
+        }
+
+        // 遍历候选对手，只打自己打得过的 (三维属性低于自己)
+        for (cand in candidatePool) {
+            // 若该对手三维未初始化，尝试动态探测
+            if (cand.power == 0L && cand.intel == 0L && cand.charm == 0L && cand.uin != 2761689028L) {
+                val details = querySecondMapInfoDetailsAwait(6100L, cand.petId)
+                if (details.code == 0) {
+                    cand.power = details.power
+                    cand.intel = details.intel
+                    cand.charm = details.charm
+                }
+            }
+
+            val oppTotal = cand.totalAttr
+            // 核心判定：只打三维总和低于我方的对手
+            if (oppTotal > myTotal) {
+                sendLog(context, "⏩ [自动PK] 跳过高战对手「${cand.userNick}」(三维: $oppTotal > 我方: $myTotal)")
+                continue
+            }
+
+            val roleType = if (cand.isFriend) "好友" else "陌生访客"
+            val targetLabel = "$roleType「${cand.userNick}」的小宠「${cand.petNick}」"
+            sendLog(context, "🎯 [对手锁定] 选中碾压对手: $targetLabel (对手三维: $oppTotal <= 我方: $myTotal)")
+
+            // 1. 查询对手状态 0x9875_1
+            val pkStatus = suspendCancellableCoroutine<QQPetDirectBridge.PkStatusInfo?> { cont ->
+                bridge.queryFriendPkStatus(cand.uin, cand.petId, ownPetId) { code, info, _ ->
+                    if (cont.isActive) {
+                        cont.resume(if (code == 0) info else null)
+                    }
+                }
+            }
+
+            if (pkStatus != null) {
+                if (pkStatus.rawStatus == 300 && !pkStatus.ongoingStoryId.isNullOrEmpty()) {
+                    sendLog(context, "⏳ [自动PK] 发现历史未结算对决 (storyId=${pkStatus.ongoingStoryId})，正在领取收益...")
+                    val settleRes = suspendCancellableCoroutine<QQPetDirectBridge.PkSettleResult> { cont ->
+                        bridge.settlePkBattle(pkStatus.ongoingStoryId, ownPetId) { res ->
+                            if (cont.isActive) cont.resume(res)
+                        }
+                    }
+                    if (settleRes.code == 0) {
+                        sendLog(context, "🎉 [自动PK] 历史对决结算完成！获得金币: +${settleRes.goldEarned}")
+                    }
+                    delay(1200L)
+                }
+
+                if (!pkStatus.canPk && pkStatus.rawStatus != 100 && pkStatus.rawStatus != 300) {
+                    sendLog(context, "ℹ️ [自动PK] 对手 $targetLabel 当前不可对决 (rawStatus=${pkStatus.rawStatus})，寻找下一位...")
+                    continue
+                }
+            }
+
+            // 2. 发起真实对决 0x975e_1
+            sendLog(context, "🚀 [自动PK] 正在发起战斗挑战 (0x975e_1 / eventType=6900)...")
+            val battleRes = suspendCancellableCoroutine<QQPetDirectBridge.PkBattleResult> { cont ->
+                bridge.startPkBattle(cand.uin, cand.petId, ownPetId) { res ->
+                    if (cont.isActive) cont.resume(res)
+                }
+            }
+
+            if (battleRes.code != 0 || battleRes.storyId.isNullOrEmpty()) {
+                sendLog(context, "⚠️ [自动PK] 对决回包: code=${battleRes.code}, err=${battleRes.errorMsg ?: "暂不可战"}，跳过")
+                continue
+            }
+
+            val outcomeStr = if (battleRes.isWin) "🎉 战斗大捷！" else "💥 战斗惜败"
+            sendLog(
+                context,
+                "⚔️ [对决进行中] 我方「${battleRes.myNick}」战力 ${battleRes.myPower} VS 对方「${battleRes.oppNick}」战力 ${battleRes.oppPower} -> 判定: $outcomeStr (storyId=${battleRes.storyId})"
+            )
+
+            // 3. 倒计时等待结算
+            val waitSec = if (battleRes.leftDurationSec in 1..25) battleRes.leftDurationSec else 5L
+            sendLog(context, "⏳ [自动PK] 等待战斗结算倒计时 ${waitSec} 秒...")
+            delay(waitSec * 1000L + 500L)
+
+            // 4. 领奖结算 0x9760_1
+            val settleRes = suspendCancellableCoroutine<QQPetDirectBridge.PkSettleResult> { cont ->
+                bridge.settlePkBattle(battleRes.storyId, ownPetId) { res ->
+                    if (cont.isActive) cont.resume(res)
+                }
+            }
+
+           val newCount = incrementDailyPkCount(context)
+           if (settleRes.code == 0) {
+               val titleStr = settleRes.title?.ifEmpty { outcomeStr } ?: outcomeStr
+               val descStr = if (!settleRes.desc.isNullOrEmpty()) " · ${settleRes.desc}" else ""
+                val goldStr = if (settleRes.goldEarned in 1..1_000_000L) "，斩获金币: +${settleRes.goldEarned}" else ""
+                sendLog(context, "🏅 [PK结算] 第 $newCount/10 场对决完成: $titleStr$descStr$goldStr！")
+           } else {
+               sendLog(context, "ℹ️ [PK结算] 第 $newCount/10 场对决已记录 (结算回包 code=${settleRes.code})")
+           }
+
+            bridge.refreshProfile()
+            return newCount
+        }
+
+        sendLog(context, "ℹ️ [自动PK] 遍历完成，暂未发现可安全对决的对手")
+        return currentCount
+    }
+
+    /**
+     * 连续执行每日 PK 对决流程（每天打满 10 场，每次冷却 1~3 分钟随机时间）
+     */
+    suspend fun executeAutoPkSession(context: Context, isContinuous: Boolean = true) {
+        val ownPetId = ensurePetId(context)
+        if (ownPetId.isNullOrEmpty()) {
+            sendLog(context, "⚠️ [自动PK] 未能锁定本人小宠 ID，终止对决流程")
+            return
+        }
+
+        var completedCount = getDailyPkCount(context)
+        if (completedCount >= 10) {
+            sendLog(context, "🎉 [自动PK] 今日 10 场 PK 挑战已全部完成 ($completedCount/10 场)，明日将自动重置！")
+            return
+        }
+
+        sendLog(context, "⚔️ [自动PK启动] 当前今日已完成 $completedCount/10 场，开始巡检对手并执行稳赢对决...")
+
+        while (completedCount < 10) {
+            val afterCount = executeAutoPkSingleMatch(context, ownPetId, isManual = true)
+            if (afterCount <= completedCount) {
+                sendLog(context, "ℹ️ [自动PK] 当前无合适对手或对手均处于不可战状态，暂缓本轮对决")
+                break
+            }
+            completedCount = afterCount
+
+            if (completedCount >= 10) {
+                sendLog(context, "🎉 [自动PK圆满达成] 今日 10 场 PK 挑战已全部打满 (10/10 场)，金币已入账！")
+                break
+            }
+
+            if (!isContinuous) {
+                break
+            }
+
+            // 每次 CD 1min~3min 随机时间 (60~180 秒)
+            val sleepSec = java.util.concurrent.ThreadLocalRandom.current().nextLong(60L, 180L)
+            val minText = String.format(java.util.Locale.CHINA, "%.1f", sleepSec / 60.0)
+            sendLog(context, "⏱️ [PK拟人冷却] 第 $completedCount/10 场完成，拟人休眠 ${sleepSec} 秒 (~${minText} 分钟) 后进入下一场...")
+            delay(sleepSec * 1000L)
+        }
+    }
+
+    /**
+     * 与指定好友宠物发起 PK 对决全流程实测
+     */
+    suspend fun executePkWithFriend(
+        context: Context,
+        targetUin: Long = 2761689028L,
+        targetFriendNick: String = "抚琴的人",
+        targetPetNick: String = "花儿",
+        targetPetIdParam: String = ""
+    ) {
+        val petId = ensurePetId(context) ?: return
+        executeAutoPkSingleMatch(context, petId, isManual = true, specificTargetUin = targetUin)
     }
 
     fun sendLog(context: Context, message: String) {

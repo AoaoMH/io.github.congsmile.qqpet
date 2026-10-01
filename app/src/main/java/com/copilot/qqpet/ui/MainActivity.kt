@@ -146,6 +146,10 @@ class MainActivity : AppCompatActivity() {
            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
            sendActionToQQ("friend_care", "帮全部好友喂食与洗澡")
        }
+        binding.btnTestPk.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            sendActionToQQ("pk_auto", "自动 PK 挑战 (10场实测)")
+        }
        binding.btnClearLogs.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             binding.tvEngineLogs.text = "日志已清空，等待下次测试..."
@@ -159,6 +163,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnTestAdventure.applyApplePressEffect()
         binding.btnTestSettle.applyApplePressEffect()
         binding.btnTestFriendCare.applyApplePressEffect()
+        binding.btnTestPk.applyApplePressEffect()
         binding.btnClearLogs.applyApplePressEffect()
     }
 
@@ -251,6 +256,7 @@ class MainActivity : AppCompatActivity() {
         binding.switchClaimCoinBag.isChecked = claimBagOn
         binding.switchHireFriend.isChecked = hireFriendOn
         binding.switchFriendCare.isChecked = friendCareOn
+        binding.switchAutoPk.isChecked = prefs.getBoolean(PreferencesHelper.KEY_AUTO_PK, false)
 
        binding.switchHumanLikeSleep.isChecked = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
        binding.switchNightSleep.isChecked = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
@@ -328,6 +334,12 @@ class MainActivity : AppCompatActivity() {
             binding.switchFriendCare.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             prefs.edit().putBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, isChecked).apply()
             animateExpandCollapse(binding.layoutFriendCareOptions, isChecked)
+            syncConfigToQQ()
+        }
+
+        binding.switchAutoPk.setOnCheckedChangeListener { _, isChecked ->
+            binding.switchAutoPk.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            prefs.edit().putBoolean(PreferencesHelper.KEY_AUTO_PK, isChecked).apply()
             syncConfigToQQ()
         }
 
@@ -707,9 +719,10 @@ class MainActivity : AppCompatActivity() {
         val workType = prefs.getInt(PreferencesHelper.KEY_WORK_TYPE, 0)
         val workDuration = prefs.getInt(PreferencesHelper.KEY_WORK_DURATION, 0)
         val careEnergy = prefs.getInt(PreferencesHelper.KEY_CARE_ENERGY_THRESHOLD, 60)
-        val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
-        val hireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
-       val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
+       val careClean = prefs.getInt(PreferencesHelper.KEY_CARE_CLEAN_THRESHOLD, 60)
+       val hireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
+       val autoPk = prefs.getBoolean(PreferencesHelper.KEY_AUTO_PK, false)
+      val humanLikeSleep = prefs.getBoolean(PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true)
        val nightSleep = prefs.getBoolean(PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true)
        val screenOffSilent = prefs.getBoolean(PreferencesHelper.KEY_SCREEN_OFF_SILENT, true)
        val hideSetting = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
@@ -735,8 +748,9 @@ class MainActivity : AppCompatActivity() {
                 putExtra("extra_work_type", workType)
                 putExtra("extra_work_duration", workDuration)
                 putExtra("extra_care_energy_threshold", careEnergy)
-                putExtra("extra_care_clean_threshold", careClean)
-                putExtra("extra_hire_friend_enabled", hireFriend)
+               putExtra("extra_care_clean_threshold", careClean)
+               putExtra("extra_hire_friend_enabled", hireFriend)
+               putExtra("extra_auto_pk", autoPk)
                putExtra("extra_human_like_sleep", humanLikeSleep)
                putExtra("extra_night_sleep_mode", nightSleep)
                putExtra("extra_screen_off_silent", screenOffSilent)

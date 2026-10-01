@@ -9,13 +9,13 @@ android {
 
    defaultConfig {
        // LSPosed 官方模块仓库要求包名归属可验证：io.github.<username> 前缀或自有域名反写
-     applicationId = "io.github.congsmile.qqpet"
-   minSdk = 26
-  targetSdk = 34
-      versionCode = 54
-    // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.53)
-      versionName = "1.0.53"
-}
+       applicationId = "io.github.congsmile.qqpet"
+       minSdk = 26
+       targetSdk = 34
+        versionCode = 55
+        // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.54)
+        versionName = "1.0.54"
+    }
 
    buildTypes {
         release {

@@ -318,21 +318,36 @@
                    app:strokeWidth="0dp"
                    app:cornerRadius="10dp" />
 
+              <com.google.android.material.button.MaterialButton
+                  android:id="@+id/btnTestFriendCare"
+                  android:layout_width="match_parent"
+                  android:layout_height="42dp"
+                  android:backgroundTint="@color/ios_tint_bg"
+                  android:insetTop="0dp"
+                  android:insetBottom="0dp"
+                  android:stateListAnimator="@null"
+                  android:text="批量帮好友喂食洗澡实测"
+                  android:textColor="@color/ios_tint_text"
+                  android:textSize="13sp"
+                  app:strokeWidth="0dp"
+                  app:cornerRadius="10dp" />
+
                <com.google.android.material.button.MaterialButton
-                   android:id="@+id/btnTestFriendCare"
+                   android:id="@+id/btnTestPk"
                    android:layout_width="match_parent"
                    android:layout_height="42dp"
-                   android:backgroundTint="@color/ios_tint_bg"
+                   android:layout_marginTop="8dp"
+                   android:backgroundTint="#FFF2E5"
                    android:insetTop="0dp"
                    android:insetBottom="0dp"
                    android:stateListAnimator="@null"
-                   android:text="批量帮好友喂食洗澡实测"
-                   android:textColor="@color/ios_tint_text"
+                   android:text="发起自动 PK 对决 (10场实测)"
+                   android:textColor="#FF9500"
                    android:textSize="13sp"
                    app:strokeWidth="0dp"
                    app:cornerRadius="10dp" />
 
-                <!-- 控制台日志区域 (Xcode / Console 哑光暗黑风格) -->
+               <!-- 控制台日志区域 (Xcode / Console 哑光暗黑风格) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -985,16 +1000,57 @@
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="8dp" />
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="好友清洁触发阈值 (低于该值自动帮洗澡)"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="11.5sp"
-                        android:layout_marginBottom="4dp" />
+                   <TextView
+                       android:layout_width="wrap_content"
+                       android:layout_height="wrap_content"
+                       android:text="好友清洁触发阈值 (低于该值自动帮洗澡)"
+                       android:textColor="@color/text_secondary"
+                       android:textSize="11.5sp"
+                       android:layout_marginBottom="4dp" />
+                   <LinearLayout
+                       android:id="@+id/containerFriendClean"
+                       android:layout_width="match_parent"
+                       android:layout_height="wrap_content" />
+               </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0.6dp"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="#E5E5EA" />
+
+                <!-- 自动对决挑战 (PK) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:paddingStart="16dp"
+                    android:paddingTop="12dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp">
                     <LinearLayout
-                        android:id="@+id/containerFriendClean"
-                        android:layout_width="match_parent"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="自动对决挑战 (PK)"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="每日自动PK 10场 · 三维筛查稳赢 · 冷却1~3分"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoPk"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
 

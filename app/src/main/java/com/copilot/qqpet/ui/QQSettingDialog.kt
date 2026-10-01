@@ -1315,11 +1315,12 @@ object QQSettingDialog {
       dailyCard.addView(friendCarePanel)
       dailyCard.addView(createDivider())
 
-      addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
-       addSimpleToggleRow(dailyCard, "自动领取好友福袋", "自动扫描好友小窝并拆取掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
-       addSimpleToggleRow(dailyCard, "疲惫时自动转冒险", "检测到疲惫收益减少时，取消打工和学习转去冒险直至恢复", PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true, false)
-       addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
-       addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, false)
+     addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
+      addSimpleToggleRow(dailyCard, "自动领取好友福袋", "自动扫描好友小窝并拆取掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
+      addSimpleToggleRow(dailyCard, "疲惫时自动转冒险", "检测到疲惫收益减少时，取消打工和学习转去冒险直至恢复", PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true, false)
+      addSimpleToggleRow(dailyCard, "自动对决挑战 (PK)", "每日自动与好友或访客PK 10场，三维筛查稳赢挑战，冷却1~3分钟", PreferencesHelper.KEY_AUTO_PK, false, false)
+      addSimpleToggleRow(dailyCard, "神秘森林冒险", "自动深入野外林区探秘与冒险", "key_adventure", false, false)
+      addSimpleToggleRow(dailyCard, "探险收益结算", "历练归来自动领取全部掉落收益", "key_settle", true, false)
        addSimpleToggleRow(dailyCard, "动态拟人休眠", "随机1~3分钟非固定周期休眠，有效避免行为时序聚类识别", PreferencesHelper.KEY_HUMAN_LIKE_SLEEP, true, false)
        dailyCard.addView(createDivider())
       addSimpleToggleRow(dailyCard, "夜间防风控静默", "凌晨01:30~06:30暂停唤醒与轮转，完全符合人类作息时序", PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true, false)
@@ -1479,23 +1480,37 @@ object QQSettingDialog {
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
+       addActionItem(
+           card = actionCard,
+           title = "立即帮全部好友喂食与洗澡",
+           confirmTitle = "立即帮好友宠物喂食洗澡？",
+           confirmMessage = "将立即检测全部养宠好友的实时体力与清洁度，低于设定阈值时自动帮好友喂食与搓澡。",
+           confirmBtnText = "立即照料好友",
+           colorHex = "#007AFF",
+           isLast = false
+       ) {
+           triggerAction(context, engine, "friend_care")
+           mainHandler.postDelayed({
+               statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+           }, 800L)
+       }
         addActionItem(
             card = actionCard,
-            title = "立即帮全部好友喂食与洗澡",
-            confirmTitle = "立即帮好友宠物喂食洗澡？",
-            confirmMessage = "将立即检测全部养宠好友的实时体力与清洁度，低于设定阈值时自动帮好友喂食与搓澡。",
-            confirmBtnText = "立即照料好友",
-            colorHex = "#007AFF",
+            title = "立即自动 PK 挑战 (实测10场对决)",
+            confirmTitle = "确认发起自动 PK 对决？",
+            confirmMessage = "将自动筛选三维属性低于我方的对手（包含好友与访客陌生人），每次随机休眠1~3分钟，连打10场自动领奖。",
+            confirmBtnText = "立即对决",
+            colorHex = "#FF9500",
             isLast = false
         ) {
-            triggerAction(context, engine, "friend_care")
+            triggerAction(context, engine, "pk_auto")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
         }
-        addActionItem(
-            card = actionCard,
-            title = "立即召回宠物回家 (中断当前打工/学习)",
+       addActionItem(
+           card = actionCard,
+           title = "立即召回宠物回家 (中断当前打工/学习)",
             confirmTitle = "确认召回宠物回家？",
             confirmMessage = "此操作将强制中断小宠当前正在进行的打工或学习派遣，提前返程回家。",
             confirmBtnText = "确认召回",
@@ -2329,15 +2344,16 @@ object QQSettingDialog {
       val debugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
       val hireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
       val hireUinsCsv = PetAdventureEngine.loadSavedHireFriendUins(context).joinToString(",")
-      val friendCareEnabled = prefs.getBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, false)
-      val friendCareEnergy = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
-      val friendCareClean = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
+     val friendCareEnabled = prefs.getBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, false)
+     val friendCareEnergy = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
+     val friendCareClean = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
+      val autoPk = prefs.getBoolean(PreferencesHelper.KEY_AUTO_PK, false)
 
-      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
-      if (engine != null && engine !== HookEntry.globalEngine) {
-          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean)
-      }
-      val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
+      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk)
+     if (engine != null && engine !== HookEntry.globalEngine) {
+          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk)
+     }
+     val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
            putExtra("extra_study", study)
            putExtra("extra_work", work)
@@ -2366,8 +2382,9 @@ object QQSettingDialog {
           putExtra("extra_friend_care_enabled", friendCareEnabled)
           putExtra("extra_friend_care_energy_threshold", friendCareEnergy)
           putExtra("extra_friend_care_clean_threshold", friendCareClean)
-      }
-      context.sendBroadcast(intent)
+          putExtra("extra_auto_pk", autoPk)
+     }
+     context.sendBroadcast(intent)
    }
 
     private fun dp(context: Context, value: Int): Int {
