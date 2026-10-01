@@ -1426,8 +1426,8 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 "pk_auto", "pk_10" -> {
                     executeAutoPkSession(context, isContinuous = true)
                 }
-                "pk", "pk_friend", "pk_fuqin" -> {
-                    executeAutoPkSingleMatch(context, ensurePetId(context) ?: "", isManual = true, specificTargetUin = 2761689028L)
+                "pk", "pk_friend" -> {
+                    executeAutoPkSingleMatch(context, ensurePetId(context) ?: "", isManual = true)
                 }
                "school" -> {
                     val petId = ensurePetId(context) ?: return@launch
@@ -2981,24 +2981,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         val ownUinStr = bridge.getCurrentRuntimeUin().ifEmpty { currentActiveUin }
         val ownUin = ownUinStr.toLongOrNull() ?: 0L
 
-        // 1. 保底/典型实测案例：好友「抚琴的人」(UIN 2761689028L, 宠物花儿, 三维均为0, 100%打得过)
-        if (ownUin != 2761689028L) {
-            list.add(
-                PkCandidate(
-                    uin = 2761689028L,
-                    petId = "Mjc2MTY4OTAyOC01LTItMTc5MDczNTc3MDc5Mg",
-                    userNick = "抚琴的人",
-                    petNick = "花儿",
-                    power = 0L,
-                    intel = 0L,
-                    charm = 0L,
-                    isFriend = true
-                )
-            )
-            seenUins.add(2761689028L)
-        }
-
-        // 2. 好友池：从雇佣好友缓存或网络拉取
+        // 1. 好友池：从雇佣好友缓存或网络拉取
         var friends = loadCachedHireableFriends(context)
         if (friends.isEmpty()) {
             friends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
@@ -3100,7 +3083,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         // 遍历候选对手，只打自己打得过的 (三维属性低于自己)
         for (cand in candidatePool) {
             // 若该对手三维未初始化，尝试动态探测
-            if (cand.power == 0L && cand.intel == 0L && cand.charm == 0L && cand.uin != 2761689028L) {
+            if (cand.power == 0L && cand.intel == 0L && cand.charm == 0L) {
                 val details = querySecondMapInfoDetailsAwait(6100L, cand.petId)
                 if (details.code == 0) {
                     cand.power = details.power
@@ -3246,9 +3229,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
      */
     suspend fun executePkWithFriend(
         context: Context,
-        targetUin: Long = 2761689028L,
-        targetFriendNick: String = "抚琴的人",
-        targetPetNick: String = "花儿",
+        targetUin: Long,
+        targetFriendNick: String = "",
+        targetPetNick: String = "",
         targetPetIdParam: String = ""
     ) {
         val petId = ensurePetId(context) ?: return
