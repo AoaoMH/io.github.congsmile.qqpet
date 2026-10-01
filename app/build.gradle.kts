@@ -11,11 +11,11 @@ android {
        // LSPosed 官方模块仓库要求包名归属可验证：io.github.<username> 前缀或自有域名反写
      applicationId = "io.github.congsmile.qqpet"
      minSdk = 26
-     targetSdk = 34
-       versionCode = 47
-     // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.29)
-       versionName = "1.0.46"
- }
+    targetSdk = 34
+      versionCode = 48
+    // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.29)
+      versionName = "1.0.47"
+}
 
    buildTypes {
         release {

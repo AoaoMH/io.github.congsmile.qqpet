@@ -2063,14 +2063,20 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         }
                     }
                 }
-            } ?: PetFriendsPageResult(-99, emptyList(), false, "", "超时")
-        } catch (t: Throwable) {
-            PetFriendsPageResult(-99, emptyList(), false, "", t.message)
-        }
+           } ?: PetFriendsPageResult(-99, emptyList(), false, "", "超时")
+       } catch (t: Throwable) {
+           PetFriendsPageResult(-99, emptyList(), false, "", t.message)
+       }
 
-    suspend fun enrichFriendDetailsAwait(
-        friend: QQPetDirectBridge.HireableFriend
-    ): QQPetDirectBridge.HireableFriend {
+    private suspend fun randomHumanDelay(minMs: Long = 1200L, maxMs: Long = 2400L) {
+        val span = (maxMs - minMs).coerceAtLeast(1L)
+        val ms = minMs + kotlin.random.Random.nextLong(span)
+        delay(ms)
+    }
+
+   suspend fun enrichFriendDetailsAwait(
+       friend: QQPetDirectBridge.HireableFriend
+   ): QQPetDirectBridge.HireableFriend {
         if (friend.petId.isBlank()) return friend
         val details = querySecondMapInfoDetailsAwait(6100L, friend.petId)
         val status = queryStoryStatusAwait(friend.petId)
@@ -2121,12 +2127,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                     )
                 } else f
             }
-            if (!page.hasMore || page.nextCookie.isEmpty() || page.nextCookie == cookie) break
-            cookie = page.nextCookie
-            delay(120L)
-        }
+           if (!page.hasMore || page.nextCookie.isEmpty() || page.nextCookie == cookie) break
+           cookie = page.nextCookie
+            randomHumanDelay(1000L, 1800L)
+       }
 
-        // 补充来访列表中有 petId 的好友
+       // 补充来访列表中有 petId 的好友
         val (likeCode, likeMembers) = fetchLikeListAwait("")
         if (likeCode == 0) {
             for (m in likeMembers) {
@@ -2153,24 +2159,26 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             mergedMap.putAll(existingMap)
         }
 
-        val selectedUins = loadSavedHireFriendUins(context)
-        if (enrichSelectedAndTop && mergedMap.isNotEmpty()) {
-            val toEnrichUins = LinkedHashSet<Long>()
-            for (u in selectedUins) {
-                if (mergedMap.containsKey(u)) toEnrichUins.add(u)
-            }
-            for (f in mergedMap.values) {
-                if (toEnrichUins.size >= (selectedUins.size + 8)) break
-                if (f.totalAttr <= 0L) {
-                    toEnrichUins.add(f.uin)
+       val selectedUins = loadSavedHireFriendUins(context)
+       if (enrichSelectedAndTop && mergedMap.isNotEmpty()) {
+           val toEnrichUins = LinkedHashSet<Long>()
+           for (u in selectedUins) {
+               if (mergedMap.containsKey(u)) toEnrichUins.add(u)
+           }
+            if (toEnrichUins.isEmpty()) {
+                for (f in mergedMap.values) {
+                    if (toEnrichUins.size >= 3) break
+                    if (f.totalAttr <= 0L) {
+                        toEnrichUins.add(f.uin)
+                    }
                 }
             }
-            for (u in toEnrichUins) {
-                val cur = mergedMap[u] ?: continue
-                mergedMap[u] = enrichFriendDetailsAwait(cur)
-                delay(80L)
-            }
-        }
+           for (u in toEnrichUins) {
+               val cur = mergedMap[u] ?: continue
+               mergedMap[u] = enrichFriendDetailsAwait(cur)
+                randomHumanDelay(1200L, 2200L)
+           }
+       }
 
         val sortedList = mergedMap.values.sortedWith(
             compareByDescending<QQPetDirectBridge.HireableFriend> { selectedUins.contains(it.uin) }
@@ -2215,13 +2223,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             liveChecked.add(enriched)
             val name = enriched.friendNick.ifEmpty { enriched.uin.toString() }
             val stateStr = if (enriched.isIdle) "空闲可雇" else "忙碌中(剩${enriched.remainingSec / 60}分)"
-            sendLog(
-                context,
-                "   👤 好友「$name」(${enriched.uin}) · 小宠:${enriched.petNick.ifEmpty { "未知" }} · 状态:$stateStr · 实测总资质:${enriched.totalAttr} (力${enriched.power}/智${enriched.intel}/魅${enriched.charm})"
-            )
-            delay(80L)
-        }
-        saveCachedHireableFriends(context, updatedMap.values.toList())
+           sendLog(
+               context,
+               "   👤 好友「$name」(${enriched.uin}) · 小宠:${enriched.petNick.ifEmpty { "未知" }} · 状态:$stateStr · 实测总资质:${enriched.totalAttr} (力${enriched.power}/智${enriched.intel}/魅${enriched.charm})"
+           )
+            randomHumanDelay(1000L, 2000L)
+       }
+       saveCachedHireableFriends(context, updatedMap.values.toList())
 
         val idleCandidates = liveChecked
             .filter { it.isIdle }
@@ -2366,20 +2374,20 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                    for (m in toLike) {
                        val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
                        val (lCode, lErr) = sendLikeAwait(m.uin)
-                       if (lCode == 0 || lCode == 136202) {
-                           markFriendLikedToday(context, m.uin)
-                           if (lCode == 0) {
-                               successCount++
-                               sendLog(context, "✅ [自动互踩] 成功回踩好友 $name！")
-                               delay(1000L)
-                           } else {
-                               Log.i(TAG, "自动回踩好友 $name 今日已互踩过 (已登记防重)")
-                               delay(150L)
-                           }
-                       } else {
-                           Log.i(TAG, "自动回踩好友 $name 回包: code=$lCode ${lErr ?: ""}")
-                           delay(500L)
-                       }
+                      if (lCode == 0 || lCode == 136202) {
+                          markFriendLikedToday(context, m.uin)
+                          if (lCode == 0) {
+                              successCount++
+                              sendLog(context, "✅ [自动互踩] 成功回踩好友 $name！")
+                               randomHumanDelay(1500L, 2500L)
+                          } else {
+                              Log.i(TAG, "自动回踩好友 $name 今日已互踩过 (已登记防重)")
+                               randomHumanDelay(1000L, 1800L)
+                          }
+                      } else {
+                          Log.i(TAG, "自动回踩好友 $name 回包: code=$lCode ${lErr ?: ""}")
+                           randomHumanDelay(1200L, 2000L)
+                      }
                    }
                     if (successCount > 0) {
                         sendLog(context, "🎉 [自动互踩] 本轮自动回踩完成，成功回踩 $successCount 位好友")
@@ -2494,14 +2502,14 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         discoveredBags[b.coinbagId] = b
                     }
                 }
-                if (!page.hasMore || page.nextCookie.isEmpty() || page.nextCookie == cookie) {
-                    break
-                }
-                cookie = page.nextCookie
-                delay(200L)
-            }
+               if (!page.hasMore || page.nextCookie.isEmpty() || page.nextCookie == cookie) {
+                   break
+               }
+               cookie = page.nextCookie
+                randomHumanDelay(1200L, 2000L)
+           }
 
-            if (firstErrorCode != 0 && pageCount == 1) {
+           if (firstErrorCode != 0 && pageCount == 1) {
                 if (isManual) {
                     sendLog(context, "❌ [好友福袋] 拉取好友列表失败: code=$firstErrorCode ${firstErrorMsg ?: ""}")
                 }
@@ -2557,15 +2565,15 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         markCoinBagHandledToday(context, bag.coinbagId)
                         sendLog(context, "ℹ️ [好友福袋] 好友 $friendName 的福袋已被主人收走或已领空 (code=${res.code})")
                     }
-                    else -> {
-                        markCoinBagHandledToday(context, bag.coinbagId)
-                        sendLog(context, "ℹ️ [好友福袋] 拆取 $friendName 福袋回包: code=${res.code} ${res.errorMsg ?: ""}")
-                    }
-                }
-                delay(450L)
-            }
+                   else -> {
+                       markCoinBagHandledToday(context, bag.coinbagId)
+                       sendLog(context, "ℹ️ [好友福袋] 拆取 $friendName 福袋回包: code=${res.code} ${res.errorMsg ?: ""}")
+                   }
+               }
+                randomHumanDelay(1500L, 2600L)
+           }
 
-            if (claimedCount > 0) {
+           if (claimedCount > 0) {
                 sendLog(context, "🧧 [福袋汇总] 本轮成功拆开 $claimedCount 个好友福袋，共计斩获 +$totalGold 金币！")
             }
         } catch (t: Throwable) {
@@ -2600,12 +2608,12 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            val (buyCode, buyErr) = buyFoodAwait(ownPetId, 5L, "1")
            if (buyCode == 0) {
                sendLog(context, "✅ [好友投喂采购] 成功采购 5 份${foodName}！")
-               delay(350L)
+                randomHumanDelay(1000L, 1800L)
            } else if (foodItemId.isNotEmpty()) {
                val (mallCode, orderRes, _) = buyBathItemAwait(ownPetId, foodItemId, 5, scene = 12L)
                if (mallCode == 0 && (orderRes == 1 || orderRes == 0)) {
                    sendLog(context, "✅ [好友投喂采购] 通过商城通道成功采购 5 份${foodName}！")
-                   delay(350L)
+                    randomHumanDelay(1000L, 1800L)
                } else {
                     sendLog(context, "⚠️ [好友投喂采购] 采购${foodName}失败: code=$buyCode ${buyErr ?: ""}")
                 }
@@ -2628,7 +2636,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 sendLog(context, "🛒 [好友投喂采购] 投喂$petLabel 时背包食物不足 (code=1000210)，正在自动购买 5 份${foodName}...")
                 val (buyCode, buyErr) = buyFoodAwait(ownPetId, 5L, "1")
                 if (buyCode == 0) {
-                    delay(400L)
+                    randomHumanDelay(1000L, 1800L)
                     val (_, _, refreshedItems) = fetchFoodInventoryAwait()
                     val refreshedFood = refreshedItems.firstOrNull { it.balance > 0 } ?: refreshedItems.firstOrNull()
                     if (refreshedFood != null && refreshedFood.itemId.isNotEmpty()) {
@@ -2658,7 +2666,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 if (curEnergy >= prefFriendCareEnergyThreshold) {
                     break
                 }
-                delay(450L)
+                randomHumanDelay(1200L, 2000L)
             } else {
                 val msg = res.tipText ?: res.errorMsg ?: ""
                 sendLog(context, "ℹ️ [好友投喂] 投喂$petLabel 回包: code=${res.code} $msg")
@@ -2710,46 +2718,46 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 val buyCount = maxOf(neededSoaps, defaultBuyCount)
                 sendLog(context, "🛒 [好友洗护采购] 背包${itemName}不足 (库存 0)，正在自动采购 $buyCount 份${itemName}用于帮$petLabel 洗澡...")
                 val (buyCode, orderResult, buyErr) = buyBathItemAwait(ownPetId, itemId, buyCount, scene = 21L)
-                if (buyCode == 0 && (orderResult == 1 || orderResult == 0)) {
-                    balance += buyCount
-                    sendLog(context, "✅ [好友洗护采购] 成功购入 $buyCount 份${itemName}！继续帮$petLabel 搓澡...")
-                    delay(400L)
-                } else {
-                    val reason = if (orderResult == 2) "金币不足" else (buyErr ?: "code=$buyCode, orderResult=$orderResult")
-                    sendLog(context, "❌ [好友洗护采购] 购买${itemName}失败: $reason")
-                    return QQPetDirectBridge.BathResult(
-                        if (buyCode != 0) buyCode else -2,
-                        curClean,
-                        totalAdded,
-                        balance,
-                        false,
-                        "购买${itemName}失败($reason)"
-                    )
-                }
-            }
+               if (buyCode == 0 && (orderResult == 1 || orderResult == 0)) {
+                   balance += buyCount
+                   sendLog(context, "✅ [好友洗护采购] 成功购入 $buyCount 份${itemName}！继续帮$petLabel 搓澡...")
+                    randomHumanDelay(1000L, 1800L)
+               } else {
+                   val reason = if (orderResult == 2) "金币不足" else (buyErr ?: "code=$buyCode, orderResult=$orderResult")
+                   sendLog(context, "❌ [好友洗护采购] 购买${itemName}失败: $reason")
+                   return QQPetDirectBridge.BathResult(
+                       if (buyCode != 0) buyCode else -2,
+                       curClean,
+                       totalAdded,
+                       balance,
+                       false,
+                       "购买${itemName}失败($reason)"
+                   )
+               }
+           }
 
-            val res = doBathOnceAwait(friend.petId, itemId, 1, petUin = friendUinStr)
-            if (res.code != 0) {
-                if (balance > 0 && steps == 1) {
-                    balance = 0
-                    continue
-                }
-                sendLog(context, "ℹ️ [好友洗澡] 帮$petLabel 搓澡回包: code=${res.code} ${res.errorMsg ?: ""}")
-                return QQPetDirectBridge.BathResult(res.code, curClean, totalAdded, balance, false, res.errorMsg)
-            }
+           val res = doBathOnceAwait(friend.petId, itemId, 1, petUin = friendUinStr)
+           if (res.code != 0) {
+               if (balance > 0 && steps == 1) {
+                   balance = 0
+                   continue
+               }
+               sendLog(context, "ℹ️ [好友洗澡] 帮$petLabel 搓澡回包: code=${res.code} ${res.errorMsg ?: ""}")
+               return QQPetDirectBridge.BathResult(res.code, curClean, totalAdded, balance, false, res.errorMsg)
+           }
 
-            curClean = res.newClean
-            totalAdded += res.addedClean
-            balance = res.remainBalance
-            sendLog(context, "🧼 [好友搓澡] 帮$petLabel 消耗 1 份$itemName (+${res.addedClean}) -> 清洁度 $curClean/$maxClean (剩余库存: $balance)")
+           curClean = res.newClean
+           totalAdded += res.addedClean
+           balance = res.remainBalance
+           sendLog(context, "🧼 [好友搓澡] 帮$petLabel 消耗 1 份$itemName (+${res.addedClean}) -> 清洁度 $curClean/$maxClean (剩余库存: $balance)")
 
-            if (res.isFullClean || curClean >= maxClean || curClean >= prefFriendCareCleanThreshold) {
-                break
-            }
-            delay(450L)
-        }
+           if (res.isFullClean || curClean >= maxClean || curClean >= prefFriendCareCleanThreshold) {
+               break
+           }
+            randomHumanDelay(1200L, 2000L)
+       }
 
-        if (totalAdded > 0) {
+       if (totalAdded > 0) {
             try { bathAwait(friend.petId, petUin = friendUinStr) } catch (_: Throwable) {}
         }
         return QQPetDirectBridge.BathResult(0, curClean, totalAdded, balance, curClean >= maxClean, null)
@@ -2768,71 +2776,72 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 context,
                 "🤝 [好友照料] 开始扫描全部养宠好友状态 (触发阈值: 体力<$prefFriendCareEnergyThreshold 喂食, 清洁<$prefFriendCareCleanThreshold 洗澡)..."
             )
-            val friends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
-                .filter { it.uin > 0L && it.petId.isNotBlank() && it.petId != ownPetId }
+           val friends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
+               .filter { it.uin > 0L && it.petId.isNotBlank() && it.petId != ownPetId }
+                .take(15) // 单轮最多巡检 15 位好友，避免大面积发包被风控时序聚类
 
-            if (friends.isEmpty()) {
-                sendLog(context, "ℹ️ [好友照料] 暂未发现可照料的养宠好友")
-                return
-            }
+           if (friends.isEmpty()) {
+               sendLog(context, "ℹ️ [好友照料] 暂未发现可照料的养宠好友")
+               return
+           }
 
-            var checkedCount = 0
-            var fedFriendCount = 0
-            var bathedFriendCount = 0
+           var checkedCount = 0
+           var fedFriendCount = 0
+           var bathedFriendCount = 0
 
-            for (friend in friends) {
-                val attrs = queryPetAttributesAwait(friend.petId, isSelf = false)
-                if (attrs == null) {
-                    delay(120L)
-                    continue
-                }
-                checkedCount++
-                val curEnergy = attrs.energy.toInt()
-                val maxEnergy = attrs.maxEnergy.toInt().coerceAtLeast(100)
-                val curClean = attrs.clean.toInt()
-                val maxClean = attrs.maxClean.toInt().coerceAtLeast(100)
-                val friendName = friend.friendNick.ifEmpty { friend.uin.toString() }
-                val petName = friend.petNick.ifEmpty { "小宠" }
+           for (friend in friends) {
+               val attrs = queryPetAttributesAwait(friend.petId, isSelf = false)
+               if (attrs == null) {
+                    randomHumanDelay(1200L, 2000L)
+                   continue
+               }
+               checkedCount++
+               val curEnergy = attrs.energy.toInt()
+               val maxEnergy = attrs.maxEnergy.toInt().coerceAtLeast(100)
+               val curClean = attrs.clean.toInt()
+               val maxClean = attrs.maxClean.toInt().coerceAtLeast(100)
+               val friendName = friend.friendNick.ifEmpty { friend.uin.toString() }
+               val petName = friend.petNick.ifEmpty { "小宠" }
 
-                val needFeed = curEnergy in 0 until prefFriendCareEnergyThreshold
-                val needBath = curClean in 0 until prefFriendCareCleanThreshold
+               val needFeed = curEnergy in 0 until prefFriendCareEnergyThreshold
+               val needBath = curClean in 0 until prefFriendCareCleanThreshold
 
-                if (isManual || needFeed || needBath) {
-                    sendLog(
-                        context,
-                        "🔎 [好友检测] 好友「$friendName」(${friend.uin}) · $petName：体力 $curEnergy/$maxEnergy，清洁 $curClean/$maxClean" +
-                            if (!needFeed && !needBath) " (状态健康，无需照料)" else ""
-                    )
-                }
+               if (isManual || needFeed || needBath) {
+                   sendLog(
+                       context,
+                       "🔎 [好友检测] 好友「$friendName」(${friend.uin}) · $petName：体力 $curEnergy/$maxEnergy，清洁 $curClean/$maxClean" +
+                           if (!needFeed && !needBath) " (状态健康，无需照料)" else ""
+                   )
+               }
 
-                if (needFeed) {
-                    sendLog(
-                        context,
-                        "🥣 [好友喂食] 好友「$friendName」的「$petName」体力 $curEnergy/$maxEnergy 低于阈值 ($prefFriendCareEnergyThreshold)，开始自动投喂..."
-                    )
-                    val (fedOk, newEnergy) = feedFriendWithAutoBuyAwait(context, ownPetId, friend, curEnergy, maxEnergy)
-                    if (fedOk) {
-                        fedFriendCount++
-                        sendLog(context, "✅ [好友喂食] 已帮好友「$friendName」的「$petName」补充体力至 $newEnergy/$maxEnergy")
-                    }
-                    delay(400L)
-                }
+               if (needFeed) {
+                   sendLog(
+                       context,
+                       "🥣 [好友喂食] 好友「$friendName」的「$petName」体力 $curEnergy/$maxEnergy 低于阈值 ($prefFriendCareEnergyThreshold)，开始自动投喂..."
+                   )
+                   val (fedOk, newEnergy) = feedFriendWithAutoBuyAwait(context, ownPetId, friend, curEnergy, maxEnergy)
+                   if (fedOk) {
+                       fedFriendCount++
+                       sendLog(context, "✅ [好友喂食] 已帮好友「$friendName」的「$petName」补充体力至 $newEnergy/$maxEnergy")
+                   }
+                    randomHumanDelay(1500L, 2500L)
+               }
 
-                if (needBath) {
-                    sendLog(
-                        context,
-                        "🧼 [好友洗澡] 好友「$friendName」的「$petName」清洁度 $curClean/$maxClean 低于阈值 ($prefFriendCareCleanThreshold)，开始自动搓澡..."
-                    )
-                    val bathRes = bathFriendWithAutoBuyAwait(context, ownPetId, friend, curClean, maxClean)
-                    if (bathRes.code == 0 && bathRes.addedClean > 0) {
-                        bathedFriendCount++
-                        sendLog(context, "✅ [好友洗澡] 已帮好友「$friendName」的「$petName」洗香香，清洁度升至 ${bathRes.newClean}/$maxClean")
-                    }
-                    delay(400L)
-                }
+               if (needBath) {
+                   sendLog(
+                       context,
+                       "🧼 [好友洗澡] 好友「$friendName」的「$petName」清洁度 $curClean/$maxClean 低于阈值 ($prefFriendCareCleanThreshold)，开始自动搓澡..."
+                   )
+                   val bathRes = bathFriendWithAutoBuyAwait(context, ownPetId, friend, curClean, maxClean)
+                   if (bathRes.code == 0 && bathRes.addedClean > 0) {
+                       bathedFriendCount++
+                       sendLog(context, "✅ [好友洗澡] 已帮好友「$friendName」的「$petName」洗香香，清洁度升至 ${bathRes.newClean}/$maxClean")
+                   }
+                    randomHumanDelay(1500L, 2500L)
+               }
 
-                delay(180L)
-            }
+                randomHumanDelay(1500L, 2800L)
+           }
 
             sendLog(
                 context,
