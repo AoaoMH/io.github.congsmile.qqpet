@@ -110,4 +110,50 @@ class HiredRecallCalculatorTest {
         }
         assertEquals(15L, safeSleepSec)
     }
+
+    @Test
+    fun `isTrueHiredWork strictly excludes self-dispatched and regular town work`() {
+        val selfStoryId = "6400_self_dispatched_uuid"
+        val hiredStoryId = "6400_friend_hired_uuid"
+
+        // 1. 自己派出的打工，即使带有 isHiredFlag，也绝对不能被判定为被雇佣召回
+        assertFalse(
+            PetAdventureEngine.isTrueHiredWork(
+                isHiredFlag = true,
+                currentStoryId = selfStoryId,
+                selfDispatchedStoryId = selfStoryId,
+                rewardTip = "1248"
+            )
+        )
+
+        // 2. 普通小镇打工（收益为区间浮动，如 68~91），绝不能被判定为被雇佣召回
+        assertFalse(
+            PetAdventureEngine.isTrueHiredWork(
+                isHiredFlag = true,
+                currentStoryId = "6400_town_work",
+                selfDispatchedStoryId = null,
+                rewardTip = "68~91"
+            )
+        )
+
+        // 3. 真正的被好友雇佣打工（非自主派遣、命中雇佣特征且固定提成奖励）-> 判定为被雇佣
+        assertTrue(
+            PetAdventureEngine.isTrueHiredWork(
+                isHiredFlag = true,
+                currentStoryId = hiredStoryId,
+                selfDispatchedStoryId = null,
+                rewardTip = "1248"
+            )
+        )
+    }
+
+    @Test
+    fun `isPetAlreadyOutError identifies code 135054 and out-of-home messages`() {
+        assertTrue(PetAdventureEngine.isPetAlreadyOutError(135054, "你的宠物已经出门了，稍后再来吧～"))
+        assertTrue(PetAdventureEngine.isPetAlreadyOutError(135054, null))
+        assertTrue(PetAdventureEngine.isPetAlreadyOutError(0, "宠物已经出门了"))
+        assertTrue(PetAdventureEngine.isPetAlreadyOutError(1001, "您的宠物已外出"))
+        assertFalse(PetAdventureEngine.isPetAlreadyOutError(0, "成功"))
+        assertFalse(PetAdventureEngine.isPetAlreadyOutError(135010, "配置为空"))
+    }
 }

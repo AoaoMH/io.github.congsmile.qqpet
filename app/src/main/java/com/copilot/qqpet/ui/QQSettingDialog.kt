@@ -20,6 +20,7 @@ import android.os.Looper
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -635,7 +636,9 @@ object QQSettingDialog {
        val statusAttributesText = TextView(context).apply {
            val d = PetAdventureEngine.cachedSchoolDetails
            val petId = PetAdventureEngine.cachedPetId
-           val attrs = if (!petId.isNullOrEmpty()) HookEntry.globalBridge?.getPetAttributes(petId) else null
+           val attrs = if (!petId.isNullOrEmpty()) {
+               com.copilot.qqpet.protocol.QQPetDirectBridge.cachedPetAttributes ?: HookEntry.globalBridge?.getPetAttributes(petId)
+           } else null
            val attrPrefix = if (d != null && d.code == 0) "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}" else "小宠资质 · 实时同步官方属性中"
            val liveCare = if (attrs != null && attrs.energy >= 0f) " · 体力 ${attrs.energy.toInt()} 清洁 ${attrs.clean.toInt()}" else ""
            text = "$attrPrefix$liveCare"
@@ -1768,7 +1771,9 @@ object QQSettingDialog {
                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
                val d = PetAdventureEngine.cachedSchoolDetails
                val petId = PetAdventureEngine.cachedPetId
-               val attrs = if (!petId.isNullOrEmpty()) HookEntry.globalBridge?.getPetAttributes(petId) else null
+               val attrs = if (!petId.isNullOrEmpty()) {
+                   com.copilot.qqpet.protocol.QQPetDirectBridge.cachedPetAttributes ?: HookEntry.globalBridge?.getPetAttributes(petId)
+               } else null
                val attrPrefix = if (d != null && d.code == 0) "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}" else "小宠资质 · 实时同步官方属性中"
                val liveCare = if (attrs != null && attrs.energy >= 0f) " · 体力 ${attrs.energy.toInt()} 清洁 ${attrs.clean.toInt()}" else ""
                statusAttributesText.text = "$attrPrefix$liveCare"
@@ -1855,17 +1860,59 @@ object QQSettingDialog {
             )
         )
 
+        applyTouchSpringEffect(statusCard)
+        statusCard.setOnClickListener {
+            val active = engine ?: HookEntry.globalEngine ?: return@setOnClickListener
+            Toast.makeText(context, "🔄 正在核验并校准最新活跃小宠...", Toast.LENGTH_SHORT).show()
+            CoroutineScope(Dispatchers.IO).launch {
+                val (codeOwn, remotePetId) = active.queryOwnPetAwait()
+                if (!remotePetId.isNullOrEmpty()) {
+                    val changed = PetAdventureEngine.shouldUpdateCachedPetId(PetAdventureEngine.cachedPetId, remotePetId)
+                    PetAdventureEngine.saveScopedPetId(context, remotePetId)
+                    val preloaded = active.preloadAccountDataAwait(remotePetId)
+                    val attrs = active.queryPetAttributesAwait(remotePetId)
+                    mainHandler.post {
+                        applyUnlockStates(preloaded)
+                        if (attrs != null && attrs.energy >= 0f) {
+                            val d = PetAdventureEngine.cachedSchoolDetails
+                            val attrPrefix = if (d != null && d.code == 0) "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}" else "小宠资质 · 实时同步官方属性中"
+                            val liveCare = " · 体力 ${attrs.energy.toInt()} 清洁 ${attrs.clean.toInt()}"
+                            statusAttributesText.text = "$attrPrefix$liveCare"
+                        }
+                        val msg = if (changed) "✅ 已成功切换并校准新领养小宠！" else "✅ 当前小宠三围与档案已校准至最新"
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    mainHandler.post {
+                        Toast.makeText(context, "⚠️ 获取小宠失败(code=$codeOwn)，请检查QQ登录", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+
         val activeEngine = engine ?: HookEntry.globalEngine
         if (activeEngine != null) {
             CoroutineScope(Dispatchers.IO).launch {
                 activeEngine.verifyAndSyncAccountSession(context)
-                val petId = PetAdventureEngine.cachedPetId ?: activeEngine.queryOwnPetAwait().second?.also {
-                    PetAdventureEngine.saveScopedPetId(context, it)
+                val (codeOwn, remotePetId) = activeEngine.queryOwnPetAwait()
+                val petId = if (!remotePetId.isNullOrEmpty() && PetAdventureEngine.shouldUpdateCachedPetId(PetAdventureEngine.cachedPetId, remotePetId)) {
+                    Log.w("QQSettingDialog", "🔄 [弹窗核验] 发现新活跃小宠 ID: $remotePetId，覆写旧缓存: ${PetAdventureEngine.cachedPetId}")
+                    PetAdventureEngine.saveScopedPetId(context, remotePetId)
+                    remotePetId
+                } else {
+                    PetAdventureEngine.cachedPetId ?: remotePetId
                 }
                 if (!petId.isNullOrEmpty()) {
                     val preloaded = activeEngine.preloadAccountDataAwait(petId)
+                    val attrs = activeEngine.queryPetAttributesAwait(petId)
                     mainHandler.post {
                         applyUnlockStates(preloaded)
+                        if (attrs != null && attrs.energy >= 0f) {
+                            val d = PetAdventureEngine.cachedSchoolDetails
+                            val attrPrefix = if (d != null && d.code == 0) "小宠资质 · 力量 ${d.power}  智力 ${d.intel}  魅力 ${d.charm}" else "小宠资质 · 实时同步官方属性中"
+                            val liveCare = " · 体力 ${attrs.energy.toInt()} 清洁 ${attrs.clean.toInt()}"
+                            statusAttributesText.text = "$attrPrefix$liveCare"
+                        }
                     }
                     if (PetAdventureEngine.loadCachedHireableFriends(context).isEmpty()) {
                         activeEngine.fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)

@@ -198,6 +198,32 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
            lastSelectEventsFatigueTip = null
        }
 
+        private val ENERGY_COST_REGEX = Regex("""体力\d*\(当前(\d+)\)""")
+        private val CLEAN_COST_REGEX = Regex("""清洁\d*\(当前(\d+)\)""")
+
+        fun parseCurrentAttrsFromCost(costText: String?): Pair<Float?, Float?> {
+            if (costText.isNullOrBlank()) return Pair(null, null)
+            val energyMatch = ENERGY_COST_REGEX.find(costText)
+            val cleanMatch = CLEAN_COST_REGEX.find(costText)
+            val energy = energyMatch?.groupValues?.getOrNull(1)?.toFloatOrNull()
+            val clean = cleanMatch?.groupValues?.getOrNull(1)?.toFloatOrNull()
+            return Pair(energy, clean)
+        }
+
+        fun updateCachedAttributesFromCost(costText: String?) {
+            val (curEnergy, curClean) = parseCurrentAttrsFromCost(costText)
+            if (curEnergy != null || curClean != null) {
+                val old = cachedPetAttributes
+                val newEnergy = curEnergy ?: old?.energy ?: 0f
+                val newClean = curClean ?: old?.clean ?: 0f
+                val maxEnergy = old?.maxEnergy ?: 100f
+                val maxClean = old?.maxClean ?: 100f
+                val mood = old?.mood ?: 100f
+                cachedPetAttributes = PetAttributes(newEnergy, maxEnergy, newClean, maxClean, mood)
+                Log.d(TAG, "从官方岗位/课程 cost 顺风车同步三围: 体力=$newEnergy/$maxEnergy, 清洁=$newClean/$maxClean")
+            }
+        }
+
        fun containsFatigueKeyword(text: String?): Boolean {
            if (text.isNullOrEmpty()) return false
            return text.contains("疲惫") ||
@@ -471,9 +497,8 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                     TAG,
                     "queryProcessStoryInfo 回包: storyId=$storyId, eventType=$eventType, fatigued=$fatigued, tip='$displayTip', rawTip=(content='$tipContent', md='$tipMarkdown')"
                 )
-                val isHired = (eventType == 6400) || allStrings.any { s ->
+                val isHired = allStrings.any { s ->
                     s.contains("被雇佣") || s.contains("雇佣者") || s.contains("被雇佣者") || s.contains("基础工资") || s.contains("加成奖金") || s.contains("可获得基础工资")
-                            || s.contains("icon/1776409721409")
                 }
                 callback(ProcessStoryFatigueResult(0, fatigued, displayTip, eventType, null, isHired))
             } else {
@@ -1223,6 +1248,9 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                         if (itemFatigueHit != null) foundFatigueTip = itemFatigueHit
                     }
                     Log.d(TAG, "[$eventType-EventItem] name='$name', sub=$sub, can=$can, level=$level, cost='$cost', time='$costTime', reward='$reward', extra='$rewardExtra', tips='$eventTips', needCare=$isOwnerNeedCare")
+                   if (cost.isNotEmpty()) {
+                       updateCachedAttributesFromCost(cost)
+                   }
                    if (name.isNotEmpty() && sub > 0L) {
                        list.add(SelectEvent(name, sub, can, level, cost, costTime, reward, rewardExtra, eventTips, isOwnerNeedCare, itemIsFatigued))
                    }

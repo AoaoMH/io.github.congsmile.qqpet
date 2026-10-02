@@ -47,6 +47,52 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             val keywords = listOf("被雇佣", "雇佣者", "被雇佣者", "基础工资", "加成奖金", "可获得基础工资")
             return strings.any { s -> keywords.any { k -> s.contains(k) } }
         }
+
+        @Volatile
+        var selfDispatchedWorkStoryId: String? = null
+
+        fun isTrueHiredWork(
+            isHiredFlag: Boolean,
+            currentStoryId: String?,
+            selfDispatchedStoryId: String?,
+            rewardTip: String? = null,
+            totalSec: Long = 0L
+        ): Boolean {
+            if (!currentStoryId.isNullOrEmpty() && currentStoryId == selfDispatchedStoryId) {
+                return false
+            }
+            if (!rewardTip.isNullOrEmpty() && rewardTip.contains("~")) {
+                return false
+            }
+            return isHiredFlag
+        }
+
+        fun isPetAlreadyOutError(code: Int, errMsg: String?): Boolean {
+            if (code == 135054) return true
+            if (errMsg != null) {
+                if (errMsg.contains("已经出门") || errMsg.contains("已外出")) return true
+            }
+            return false
+        }
+        fun shouldUpdateCachedPetId(cachedPetId: String?, remotePetId: String?): Boolean {
+            if (remotePetId.isNullOrBlank()) return false
+            val trimmedRemote = remotePetId.trim()
+            if (cachedPetId.isNullOrBlank()) return true
+            return cachedPetId.trim() != trimmedRemote
+        }
+
+        fun isPetInvalidOrMismatchError(code: Int, errMsg: String?): Boolean {
+            if (code == 135002 || code == 135075 || code == 135001) return true
+            if (!errMsg.isNullOrBlank()) {
+                val s = errMsg.lowercase()
+                if (errMsg.contains("宠物不存在") || errMsg.contains("未领养") ||
+                    errMsg.contains("重新领养") || errMsg.contains("未初始化") ||
+                    errMsg.contains("宠物状态不匹配") || s.contains("pet not exist")
+                ) return true
+            }
+            return false
+        }
+
         const val ACTION_SYNC_WORK_PLACES = "io.github.congsmile.qqpet.ACTION_SYNC_WORK_PLACES"
         const val ACTION_SYNC_ACCOUNT_STATUS = "io.github.congsmile.qqpet.ACTION_SYNC_ACCOUNT_STATUS"
         const val EXTRA_LOG_TEXT = "extra_log_text"
@@ -114,6 +160,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        @Volatile var lastLikeBackTimeMillis: Long = 0L
        @Volatile var lastCoinBagTimeMillis: Long = 0L
        @Volatile var lastFriendCareTimeMillis: Long = 0L
+       @Volatile var lastOwnPetCheckMillis: Long = 0L
        private val todayLikedUins = java.util.Collections.synchronizedSet(HashSet<Long>())
        @Volatile private var lastLikeDayKey = ""
        private val todayClaimedBagIds = java.util.Collections.synchronizedSet(HashSet<String>())
@@ -817,17 +864,26 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         }
 
         // 2. 检查当前故事倒计时
-        val storyStatus = queryStoryStatusAwait(petId)
+        var storyStatus = queryStoryStatusAwait(petId)
+        if (isPetInvalidOrMismatchError(storyStatus.code, null)) {
+            sendLog(context, "🔄 [小宠自愈] 服务端提示宠物档案失效/不匹配 (code=${storyStatus.code})，正在核实并拉取最新活跃小宠...")
+            val healedId = recoverFromPetMismatch(context, "storyStatus code=${storyStatus.code}")
+            if (!healedId.isNullOrEmpty() && healedId != petId) {
+                petId = healedId
+                storyStatus = queryStoryStatusAwait(petId)
+            }
+        }
+        val currentStoryId = storyStatus.storyId
         val hasActiveTask = if (storyStatus.code == 0) {
             val rem = storyStatus.remaining
-            if (!storyStatus.storyId.isNullOrEmpty() && rem != null && rem > 0) {
-                lastActiveStoryId = storyStatus.storyId
+            if (!currentStoryId.isNullOrEmpty() && rem != null && rem > 0) {
+                lastActiveStoryId = currentStoryId
                 val mins = rem / 60
                 val secs = rem % 60
                 val taskType = when {
-                    storyStatus.storyId.startsWith("6100") -> "进阶修习中"
-                    storyStatus.storyId?.startsWith("6400") == true -> "小镇打工中"
-                    storyStatus.storyId.startsWith("6700") -> "森林探险中"
+                    currentStoryId.startsWith("6100") -> "进阶修习中"
+                    currentStoryId.startsWith("6400") -> "小镇打工中"
+                    currentStoryId.startsWith("6700") -> "森林探险中"
                     else -> "任务执行中"
                 }
                 currentTaskTypeName = taskType
@@ -844,31 +900,38 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         .commit()
                 } catch (_: Throwable) {}
 
-                sendLog(context, "⏳ [状态] 宠物正在$taskType (StoryID: ${storyStatus.storyId})，剩余 $mins 分 $secs 秒 (总计 ${storyStatus.total ?: 0} 秒)")
+                sendLog(context, "⏳ [状态] 宠物正在$taskType (StoryID: $currentStoryId)，剩余 $mins 分 $secs 秒 (总计 ${storyStatus.total ?: 0} 秒)")
 
                 // 2.3 检查是否处于好友被雇佣打工中，若开启「被雇佣提前召回」且进度达标，立即执行收益抢跑召回
                 val totalSec = storyStatus.total ?: 0L
                 val curProgress = calculateHiredProgress(totalSec, rem)
-                val isWorkStory = storyStatus.storyId?.startsWith("6400") == true
+                val isWorkStory = currentStoryId.startsWith("6400")
                 if (prefHiredRecallProgress > 0 && totalSec > 0L && isWorkStory) {
-                    val processInfo = queryProcessStoryInfoAwait(storyStatus.storyId, petId)
-                    val isHiredOrWork = (processInfo.code == 0 && processInfo.isHired) || isWorkStory
-                    if (isHiredOrWork) {
+                    val processInfo = queryProcessStoryInfoAwait(currentStoryId, petId)
+                    val isHired = isTrueHiredWork(
+                        isHiredFlag = (processInfo.code == 0 && processInfo.isHired),
+                        currentStoryId = storyStatus.storyId,
+                        selfDispatchedStoryId = selfDispatchedWorkStoryId,
+                        rewardTip = processInfo.tipText,
+                        totalSec = totalSec
+                    )
+                    if (isHired) {
                         val targetThresh = prefHiredRecallProgress
                         val progressInt = curProgress.toInt()
-                        currentStatusText = "打工中 · 进度 ${progressInt}% · 目标 ${targetThresh}%"
-                        sendLog(context, "💼 [打工召回监控] 小宠正处于小镇打工/被雇佣中，当前进度: ${progressInt}% (剩余 ${mins}分${secs}秒)，设定召回阈值: ${targetThresh}%")
+                        currentStatusText = "被雇佣中 · 进度 ${progressInt}% · 目标 ${targetThresh}%"
+                        sendLog(context, "💼 [被雇佣监控] 小宠正处于好友雇佣打工中，当前进度: ${progressInt}% (剩余 ${mins}分${secs}秒)，设定召回阈值: ${targetThresh}%")
                         if (shouldTriggerHiredRecall(curProgress, targetThresh)) {
                             sendLog(context, "💰 [雇佣收益抢跑] 当前打工进度 ${progressInt}% 已达到设定目标 ${targetThresh}%！正在执行提前召回以抢得满额基础工资与最高增益分成...")
-                            val (rCode, rErr) = recallStoryAwait(storyStatus.storyId, petId)
+                            val (rCode, rErr) = recallStoryAwait(currentStoryId, petId)
                             if (rCode == 0) {
                                 sendLog(context, "🎉 [提前召回成功] 宠物已提前回家，正在领取雇佣收益...")
                                 delay(800L)
-                                val (sCode, _) = settleStoryAwait(storyStatus.storyId, petId)
+                                val (sCode, _) = settleStoryAwait(currentStoryId, petId)
                                 if (sCode == 0) {
                                     sendLog(context, "✅ [雇佣收益入账] 基础工资与最高加成奖金已全额入账！")
                                 }
                                 lastActiveStoryId = null
+                                selfDispatchedWorkStoryId = null
                                 currentTaskEndTimeMillis = 0L
                                 currentTaskTypeName = "已召回回家 (空闲)"
                                 currentStatusText = "雇佣收益已锁定 · 待命"
@@ -881,13 +944,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 }
 
                 // 2.5 若开启「疲惫时自动转冒险」，且当前正在学习(6100)或打工(6400)，实时检测是否带有疲惫减益 Buff
-                if (enableFatigueToAdventure && (storyStatus.storyId.startsWith("6100") || storyStatus.storyId?.startsWith("6400") == true)) {
-                    val fatigueRes = queryProcessStoryInfoAwait(storyStatus.storyId, petId)
+                if (enableFatigueToAdventure && (currentStoryId.startsWith("6100") || currentStoryId.startsWith("6400"))) {
+                    val fatigueRes = queryProcessStoryInfoAwait(currentStoryId, petId)
                     if (fatigueRes.code == 0 && fatigueRes.isFatigued) {
                         val switched = handleFatigueSwitchToAdventure(
                             context = context,
                             petId = petId,
-                            activeStoryId = storyStatus.storyId,
+                            activeStoryId = currentStoryId,
                             currentTaskLabel = taskType,
                             tipText = fatigueRes.tipText
                         )
@@ -899,12 +962,24 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 true
             } else {
                 if (!storyStatus.storyId.isNullOrEmpty() && lastActiveStoryId == null) {
-                    lastActiveStoryId = storyStatus.storyId
+                    lastActiveStoryId = currentStoryId
                 }
                 false
             }
         } else {
             false
+        }
+
+        // 若小宠空闲且距离上次核实超过 5 分钟，主动核对服务端真实活跃宠物 ID（防止弃养重领残留）
+        if (!hasActiveTask && (System.currentTimeMillis() - lastOwnPetCheckMillis > 5 * 60 * 1000L)) {
+            lastOwnPetCheckMillis = System.currentTimeMillis()
+            val (_, liveId) = queryOwnPetAwait()
+            if (!liveId.isNullOrEmpty() && shouldUpdateCachedPetId(petId, liveId)) {
+                sendLog(context, "🔄 [小宠校准] 发现服务端活跃小宠已更新 ($petId -> $liveId)，立即切换新宠并重置状态！")
+                clearAccountBoundMemoryCache()
+                saveScopedPetId(context, liveId)
+                petId = liveId
+            }
         }
 
         // 3. 若任务已结束且开启了自动结算，执行结算
@@ -916,12 +991,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             if (codeSettle == 0) {
                 sendLog(context, "✅ [结算] 收益结算成功！金币与经验已入账")
                 lastActiveStoryId = null
+                selfDispatchedWorkStoryId = null
                 currentTaskEndTimeMillis = 0L
             } else if (codeSettle == 135004) {
                 sendLog(context, "⏳ [结算] 服务端返回 135004 (任务进行中尚未到达结算时间)")
-            } else if (codeSettle == 135075) {
+            } else if (isPetInvalidOrMismatchError(codeSettle, null)) {
                 sendLog(context, "🔄 [结算自愈] 检测到 code=135075 (状态冲突或跨号切换)，正在重新校准真实宠物 ID...")
-                recoverFrom135075(context)
+                recoverFromPetMismatch(context, "settle code=$codeSettle")
             } else {
                 sendLog(context, "ℹ️ [结算] 结算回包: code=$codeSettle (无需结算或已领取)")
                 lastActiveStoryId = null
@@ -1052,8 +1128,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            val rem = storyStatus.remaining ?: 30L
            val total = storyStatus.total ?: 0L
            var sleepSec = StealthScheduler.calculateTaskSleepSeconds(rem, prefHumanLikeSleep)
-           // 若小宠正在打工且开启了提前召回，休眠时间必须精准对齐召回阈值点，达标后绝不可死睡
-           if (prefHiredRecallProgress > 0 && total > 0L && storyStatus.storyId?.startsWith("6400") == true) {
+           val isWorkStory = currentStoryId?.startsWith("6400") == true
+           val isSelfWork = isWorkStory && (currentStoryId == selfDispatchedWorkStoryId)
+           // 若小宠正在被好友雇佣打工（非自主打工）且开启了提前召回，休眠时间必须精准对齐召回阈值点，达标后绝不可死睡
+           if (prefHiredRecallProgress > 0 && total > 0L && isWorkStory && !isSelfWork) {
                val targetElapsedSec = (total * prefHiredRecallProgress) / 100L
                val currentElapsedSec = total - rem
                val neededSec = targetElapsedSec - currentElapsedSec
@@ -1111,9 +1189,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         currentStatusText = "野外探险中 · 搜寻秘宝"
                         sendLog(context, "🎉 [探险成功] 顺利启程！StoryID: $storyId")
                         return 5 * 1000L
-                    } else if (codeAdv == 135075) {
+                    } else if (isPetInvalidOrMismatchError(codeAdv, null)) {
                         sendLog(context, "🔄 [探险自愈] 服务端返回 135075，正在校准当前账号宠物 ID 与在途状态...")
-                        recoverFrom135075(context)
+                        recoverFromPetMismatch(context, "adv code=$codeAdv")
                     } else {
                         sendLog(context, "ℹ️ [探险跳过] 回包 code=$codeAdv")
                     }
@@ -1222,9 +1300,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 }
 
                 return true
-           } else if (codeSchool == 135075) {
+           } else if (isPetInvalidOrMismatchError(codeSchool, errorMsg)) {
                sendLog(context, "🔄 [选课自愈] 服务端返回 135075，正在重新同步当前账号宠物 ID 与在途任务...")
-               recoverFrom135075(context)
+               recoverFromPetMismatch(context, "school code=$codeSchool")
                return false
            } else {
                sendLog(context, "⚠️ [动态选课] ${targetCourse.eventName} 报名回包 code=$codeSchool, 服务端说明: ${errorMsg ?: "无"}")
@@ -1305,6 +1383,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
      * 智能自适应打工调度：优先已学习工种，结合自选模式与多阶段候选池探测
      */
     private suspend fun dispatchAdaptiveWork(context: Context, petId: String): Boolean {
+        if (currentTaskEndTimeMillis > System.currentTimeMillis() && !lastActiveStoryId.isNullOrEmpty()) {
+            sendLog(context, "ℹ️ [打工防重] 当前小宠仍在进行在途任务 ($currentTaskTypeName)，跳过本次派工")
+            return false
+        }
         // 第一阶段：通过官方 0x9ab2_1 动态拉取当前小镇开放的工种库
         val modeDesc = when (prefWorkMode) {
             1 -> "专攻文职"
@@ -1377,6 +1459,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            )
            if (codeWork == 0 && !storyId.isNullOrEmpty()) {
                lastActiveStoryId = storyId
+               selfDispatchedWorkStoryId = storyId
                recordLearnedWorkJob(context, targetJob.eventName, targetJob.subEventType)
                val hireSuffix = if (hiredFriend != null) " · 雇佣:${hiredFriend.friendNick.ifEmpty { hiredFriend.uin.toString() }}" else ""
                currentTaskTypeName = "打工中 · $placeName (${targetJob.eventName}$hireSuffix)"
@@ -1399,9 +1482,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                }
 
                return true
-          } else if (codeWork == 135075) {
+          } else if (isPetAlreadyOutError(codeWork, errorMsg)) {
+              sendLog(context, "ℹ️ [打工熔断] 服务端提示宠物已在外出打工中 (code=$codeWork)，立即同步在途状态，不遍历候选池")
+              queryStoryStatusAwait(petId)
+              return false
+          } else if (isPetInvalidOrMismatchError(codeWork, errorMsg)) {
               sendLog(context, "🔄 [打工自愈] 服务端返回 135075，正在重新同步当前账号宠物 ID 与在途任务...")
-              recoverFrom135075(context)
+              recoverFromPetMismatch(context, "work code=$codeWork")
               return false
           } else {
               sendLog(context, "⚠️ [动态打工] ${targetJob.eventName} 开工回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
@@ -1461,6 +1548,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             )
             if (codeWork == 0 && !storyId.isNullOrEmpty()) {
                 lastActiveStoryId = storyId
+                selfDispatchedWorkStoryId = storyId
                 recordLearnedWorkJob(context, job.first, job.third)
                 val hireSuffix = if (hiredFriend != null) " (雇佣:${hiredFriend.friendNick.ifEmpty { hiredFriend.uin.toString() }})" else ""
                 currentTaskTypeName = "小镇打工中$hireSuffix"
@@ -1483,6 +1571,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 }
 
                 return true
+            } else if (isPetAlreadyOutError(codeWork, errorMsg)) {
+                sendLog(context, "ℹ️ [打工熔断] 服务端提示宠物已在外出打工中 (code=$codeWork)，立即终止候选工种遍历")
+                queryStoryStatusAwait(petId)
+                return false
             } else {
                 sendLog(context, "ℹ️ [工种探测] ${job.first} 回包 code=$codeWork, 服务端说明: ${errorMsg ?: "无"}")
                 delay(1200L)
@@ -1556,9 +1648,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                         currentTaskTypeName = "森林探险中"
                         currentTaskEndTimeMillis = System.currentTimeMillis() + 3600 * 1000L
                         sendLog(context, "🎉 [冒险实测] 冒险探索成功启程！StoryID: $storyId")
-                    } else if (aCode == 135075) {
+                    } else if (isPetInvalidOrMismatchError(aCode, null)) {
                         sendLog(context, "🔄 [冒险自愈] 回包 code=135075，正在自动刷新当前账号宠物 ID 并重试...")
-                        val newPetId = recoverFrom135075(context)
+                        val newPetId = recoverFromPetMismatch(context, "manual adv code=$aCode")
                         if (!newPetId.isNullOrEmpty() && newPetId != petId) {
                             val (retryCode, retrySid) = startAdventureAwait(newPetId)
                             if (retryCode == 0 && !retrySid.isNullOrEmpty()) {
@@ -1700,23 +1792,29 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         }
     }
 
-    private suspend fun ensurePetId(context: Context): String? {
+    suspend fun ensurePetId(context: Context, forceRefresh: Boolean = false): String? {
         if (!bridge.isReady) {
             sendLog(context, "❌ [错误] QQ 发包代理尚未就绪，请稍候重试")
             return null
         }
         verifyAndSyncAccountSession(context)
         var petId = cachedPetId
-        if (petId.isNullOrEmpty()) {
+        if (petId.isNullOrEmpty() || forceRefresh) {
             sendLog(context, "⏳ [鉴权] 正在锁定本人宠物 ID...")
             val (codePet, fetchedId) = queryOwnPetAwait()
             if (fetchedId.isNullOrEmpty()) {
-                sendLog(context, "❌ [鉴权] 获取宠物 ID 失败 (code=$codePet)，请检查 QQ 登录状态")
-                return null
+                if (petId.isNullOrEmpty()) {
+                    sendLog(context, "❌ [鉴权] 获取宠物 ID 失败 (code=$codePet)，请检查 QQ 登录状态")
+                    return null
+                }
+                return petId
             }
-            saveScopedPetId(context, fetchedId)
+            if (shouldUpdateCachedPetId(cachedPetId, fetchedId)) {
+                clearAccountBoundMemoryCache()
+                saveScopedPetId(context, fetchedId)
+                sendLog(context, "✅ [小宠同步] 成功校准并锁定最新活跃宠物 ID: $fetchedId")
+            }
             petId = fetchedId
-            sendLog(context, "✅ [鉴权] 锁定宠物 ID: $petId")
         }
         return petId
     }
@@ -1727,14 +1825,14 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
      * 2. 若发现 petId 已变更（切换了大小号），立即清空旧号缓存并保存新号 petId；
      * 3. 同步查询一次真实在途任务状态 (0x975a_1)，如实恢复倒计时或触发结算。
      */
-    private suspend fun recoverFrom135075(context: Context): String? {
+    suspend fun recoverFromPetMismatch(context: Context, triggerReason: String = ""): String? {
         val (_, realPetId) = queryOwnPetAwait()
         if (!realPetId.isNullOrEmpty()) {
-            if (realPetId != cachedPetId) {
-                Log.w(TAG, "🔄 [135075自愈] 发现真实本人 petId ($realPetId) 与缓存 ($cachedPetId) 不一致，立即刷新切换！")
+            if (shouldUpdateCachedPetId(cachedPetId, realPetId)) {
+                Log.w(TAG, "🔄 [小宠自愈] 发现真实本人 petId ($realPetId) 与缓存 ($cachedPetId) 不一致 (触发: $triggerReason)，立即刷新切换！")
                 clearAccountBoundMemoryCache()
                 saveScopedPetId(context, realPetId)
-                sendLog(context, "✅ [账号校准] 已自动切换到当前登录账号的宠物 ID: $realPetId")
+                sendLog(context, "✅ [小宠校准] 检测到新领养小宠/账号切换，已自动锁定最新活跃宠物: $realPetId")
             }
             val status = queryStoryStatusAwait(realPetId)
             if (status.code == 0 && !status.storyId.isNullOrEmpty()) {
@@ -1745,12 +1843,21 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                 } else if (enableSettle) {
                     settleStoryAwait(status.storyId, realPetId)
                     lastActiveStoryId = null
+                    selfDispatchedWorkStoryId = null
                     currentTaskEndTimeMillis = 0L
                 }
+            } else if (isPetInvalidOrMismatchError(status.code, null)) {
+                lastActiveStoryId = null
+                selfDispatchedWorkStoryId = null
+                currentTaskEndTimeMillis = 0L
             }
             return realPetId
         }
         return cachedPetId
+    }
+
+    private suspend fun recoverFrom135075(context: Context): String? {
+        return recoverFromPetMismatch(context, "code=135075")
     }
 
     suspend fun queryOwnPetAwait(timeoutMs: Long = NETWORK_TIMEOUT_MS): Pair<Int, String?> =
@@ -2229,6 +2336,13 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                )
                if (code == 0 && !storyId.isNullOrEmpty()) {
                     return WorkStartWithHireResult(code, storyId, errMsg, candidate)
+                }
+                if (isPetAlreadyOutError(code, errMsg)) {
+                    sendLog(
+                        context,
+                        "ℹ️ [雇佣阻断] 宠物已处于外出打工状态中 (code=$code)，立即终止后续雇佣尝试与单人打工"
+                    )
+                    return WorkStartWithHireResult(code, storyId, errMsg, null)
                 }
                 sendLog(
                     context,
