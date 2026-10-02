@@ -274,9 +274,13 @@ class HookEntry : IXposedHookLoadPackage {
                         val pkBlacklistUinsCsv = if (intent.hasExtra("extra_pk_blacklist_uins")) (intent.getStringExtra("extra_pk_blacklist_uins") ?: "") else (prefs.getString(com.copilot.qqpet.ui.PreferencesHelper.KEY_PK_BLACKLIST_UINS, "") ?: "")
                         val hiredRecallProgress = if (intent.hasExtra("extra_hired_recall_progress")) intent.getIntExtra("extra_hired_recall_progress", 72) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
 
+                        val activeVisit = if (intent.hasExtra("extra_active_visit")) intent.getBooleanExtra("extra_active_visit", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_ACTIVE_VISIT_ENABLED, true)
+                        val activeVisitFriends = if (intent.hasExtra("extra_active_visit_friends")) intent.getBooleanExtra("extra_active_visit_friends", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_ACTIVE_VISIT_FRIENDS, true)
+                        val activeVisitStrangers = if (intent.hasExtra("extra_active_visit_strangers")) intent.getBooleanExtra("extra_active_visit_strangers", true) else prefs.getBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_ACTIVE_VISIT_STRANGERS, true)
+                        val activeVisitDailyLimit = if (intent.hasExtra("extra_active_visit_daily_limit")) intent.getIntExtra("extra_active_visit_daily_limit", 20) else prefs.getInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_ACTIVE_VISIT_DAILY_LIMIT, 20)
                        HookLog.isDebugEnabled = debugLog
 
-                        globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, nightSleep, screenOffSilent, hideSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecallProgress)
+                        globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergyThreshold, careCleanThreshold, humanLikeSleep, nightSleep, screenOffSilent, hideSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecallProgress, activeVisit, activeVisitFriends, activeVisitStrangers, activeVisitDailyLimit)
                        try {
                             val editor = prefs.edit()
                               if (intent.hasExtra("extra_study")) editor.putBoolean("key_study", study)
@@ -309,6 +313,10 @@ class HookEntry : IXposedHookLoadPackage {
                             if (intent.hasExtra("extra_auto_pk")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_AUTO_PK, autoPk)
                             if (intent.hasExtra("extra_pk_blacklist_uins")) editor.putString(com.copilot.qqpet.ui.PreferencesHelper.KEY_PK_BLACKLIST_UINS, pkBlacklistUinsCsv)
                             if (intent.hasExtra("extra_hired_recall_progress")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, hiredRecallProgress)
+                            if (intent.hasExtra("extra_active_visit")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_ACTIVE_VISIT_ENABLED, activeVisit)
+                            if (intent.hasExtra("extra_active_visit_friends")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_ACTIVE_VISIT_FRIENDS, activeVisitFriends)
+                            if (intent.hasExtra("extra_active_visit_strangers")) editor.putBoolean(com.copilot.qqpet.ui.PreferencesHelper.KEY_ACTIVE_VISIT_STRANGERS, activeVisitStrangers)
+                            if (intent.hasExtra("extra_active_visit_daily_limit")) editor.putInt(com.copilot.qqpet.ui.PreferencesHelper.KEY_ACTIVE_VISIT_DAILY_LIMIT, activeVisitDailyLimit)
                             editor.commit()
                         } catch (_: Throwable) {}
                           HookLog.log(TAG, "跨进程配置更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adv, 结算=$settle, 拟人休眠=$humanLikeSleep, 隐身=$hideSetting, 调试日志=$debugLog")

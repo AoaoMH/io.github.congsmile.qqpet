@@ -1375,7 +1375,95 @@ object QQSettingDialog {
       dailyCard.addView(friendCarePanel)
       dailyCard.addView(createDivider())
 
-     addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回踩到访过我家的小伙伴", PreferencesHelper.KEY_LIKE_BACK, true, false)
+     addSimpleToggleRow(dailyCard, "自动回踩访客", "定时巡检并自动回赠所有造访小家的好友与陌生访客", PreferencesHelper.KEY_LIKE_BACK, true, false)
+
+      val activeVisitRow = LinearLayout(context).apply {
+          orientation = LinearLayout.HORIZONTAL
+          gravity = Gravity.CENTER_VERTICAL
+          setPadding(0, dp(context, 10), 0, dp(context, 10))
+      }
+      val activeVisitCol = LinearLayout(context).apply {
+          orientation = LinearLayout.VERTICAL
+          layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+      }
+      val activeVisitTitle = TextView(context).apply {
+          text = "自动主动串门踩踩"
+          textSize = 15f
+          typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+          setTextColor(colors.primaryText)
+      }
+      val activeVisitSubtitle = TextView(context).apply {
+          text = "主动串门送心，支持全量养宠好友与全自动随机陌生小宠"
+          textSize = 12f
+          setTextColor(colors.secondaryText)
+          setPadding(0, dp(context, 2), 0, 0)
+      }
+      activeVisitCol.addView(activeVisitTitle)
+      activeVisitCol.addView(activeVisitSubtitle)
+      activeVisitRow.addView(activeVisitCol)
+
+      val activeVisitPanel = LinearLayout(context).apply {
+          orientation = LinearLayout.VERTICAL
+          setPadding(dp(context, 8), dp(context, 4), dp(context, 8), dp(context, 12))
+      }
+
+      addSimpleToggleRow(
+          activeVisitPanel,
+          "主动踩全部好友",
+          "每天自动遍历好友小宠小窝，主动串门送心续火花",
+          PreferencesHelper.KEY_ACTIVE_VISIT_FRIENDS,
+          true,
+          false
+      )
+
+      addSimpleToggleRow(
+          activeVisitPanel,
+          "主动踩随机陌生人",
+          "自动从活跃陌生小宠池每日洗牌随机抽取串门，引流回踩",
+          PreferencesHelper.KEY_ACTIVE_VISIT_STRANGERS,
+          true,
+          false
+      )
+
+      val limitLabels = listOf("10人", "20人 (推荐)", "30人", "50人")
+      val limitValues = listOf(10, 20, 30, 50)
+      val curLimit = prefs.getInt(PreferencesHelper.KEY_ACTIVE_VISIT_DAILY_LIMIT, 20)
+      val limitInitialIndex = limitValues.indexOf(curLimit).let { if (it >= 0) it else 1 }
+      val limitLabelTv = TextView(context).apply {
+          text = "单日主动串门安全上限 (防风控，离散拟人发包)"
+          textSize = 12f
+          setTextColor(colors.secondaryText)
+          setPadding(0, dp(context, 8), 0, dp(context, 4))
+      }
+      val limitSeg = AppleSegmentedControl(
+          context,
+          limitLabels,
+          limitInitialIndex,
+          isNight = colors.isNight
+      ) { sel ->
+          val v = limitValues.getOrElse(sel) { 20 }
+          prefs.edit().putInt(PreferencesHelper.KEY_ACTIVE_VISIT_DAILY_LIMIT, v).commit()
+          syncConfig(prefs, engine, context)
+      }
+      activeVisitPanel.addView(limitLabelTv)
+      activeVisitPanel.addView(limitSeg)
+
+      val activeVisitInitialChecked = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_ENABLED, true)
+      val activeVisitSwitch = AppleSwitchView(context, colors.isNight).apply {
+          setCheckedImmediately(activeVisitInitialChecked)
+          onCheckedChangeListener = { isChecked ->
+              prefs.edit().putBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_ENABLED, isChecked).commit()
+              animateExpandCollapse(activeVisitPanel, isChecked)
+              syncConfig(prefs, engine, context)
+          }
+      }
+      activeVisitRow.addView(activeVisitSwitch)
+      dailyCard.addView(activeVisitRow)
+      if (!activeVisitInitialChecked) {
+          activeVisitPanel.visibility = View.GONE
+      }
+      dailyCard.addView(activeVisitPanel)
+      dailyCard.addView(createDivider())
       addSimpleToggleRow(dailyCard, "自动领取好友福袋", "自动扫描好友小窝并拆取掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
       addSimpleToggleRow(dailyCard, "疲惫时自动转冒险", "检测到疲惫收益减少时，取消打工和学习转去冒险直至恢复", PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true, false)
 
@@ -1568,12 +1656,26 @@ object QQSettingDialog {
             card = actionCard,
             title = "立即回踩访客 (互相踩踩)",
             confirmTitle = "立即回踩访客？",
-            confirmMessage = "将拉取最近造访小家的好友记录，并依次向未回赠的好友发起回踩送心。",
-            confirmBtnText = "立即回踩",
+            confirmMessage = "将拉取最近造访小家的记录，并依次向未回赠的好友与陌生访客发起回踩送心。",
+            confirmBtnText = "立即回礼",
             colorHex = "#007AFF",
             isLast = false
         ) {
             triggerAction(context, engine, "like_back")
+            mainHandler.postDelayed({
+                statusActionText.text = PetAdventureEngine.formatLiveStatusText()
+            }, 800L)
+        }
+        addActionItem(
+            card = actionCard,
+            title = "立即主动串门踩踩 (好友+随机陌生人)",
+            confirmTitle = "立即主动串门踩踩？",
+            confirmMessage = "将自动筛选今日尚未踩过的好友与随机陌生小宠，保持拟人离散间隔主动串门送心。",
+            confirmBtnText = "立即串门",
+            colorHex = "#007AFF",
+            isLast = false
+        ) {
+            triggerAction(context, engine, "active_visit")
             mainHandler.postDelayed({
                 statusActionText.text = PetAdventureEngine.formatLiveStatusText()
             }, 800L)
@@ -2978,10 +3080,14 @@ object QQSettingDialog {
       val autoPk = prefs.getBoolean(PreferencesHelper.KEY_AUTO_PK, false)
       val pkBlacklistUinsCsv = PetAdventureEngine.loadSavedPkBlacklistUins(context).joinToString(",")
       val hiredRecall = prefs.getInt(PreferencesHelper.KEY_HIRED_RECALL_PROGRESS, 72)
+      val activeVisit = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_ENABLED, true)
+      val activeVisitFriends = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_FRIENDS, true)
+      val activeVisitStrangers = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_STRANGERS, true)
+      val activeVisitDailyLimit = prefs.getInt(PreferencesHelper.KEY_ACTIVE_VISIT_DAILY_LIMIT, 20)
 
-      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecall)
+      HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecall, activeVisit, activeVisitFriends, activeVisitStrangers, activeVisitDailyLimit)
      if (engine != null && engine !== HookEntry.globalEngine) {
-          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecall)
+          engine.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecall, activeVisit, activeVisitFriends, activeVisitStrangers, activeVisitDailyLimit)
      }
      val intent = Intent(HookEntry.ACTION_UPDATE_CONFIG).apply {
            setPackage("com.tencent.mobileqq")
@@ -3015,6 +3121,10 @@ object QQSettingDialog {
           putExtra("extra_auto_pk", autoPk)
           putExtra("extra_pk_blacklist_uins", pkBlacklistUinsCsv)
           putExtra("extra_hired_recall_progress", hiredRecall)
+          putExtra("extra_active_visit", activeVisit)
+          putExtra("extra_active_visit_friends", activeVisitFriends)
+          putExtra("extra_active_visit_strangers", activeVisitStrangers)
+          putExtra("extra_active_visit_daily_limit", activeVisitDailyLimit)
      }
      context.sendBroadcast(intent)
    }

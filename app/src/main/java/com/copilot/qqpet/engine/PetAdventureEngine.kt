@@ -131,6 +131,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        @Volatile var prefHireFriendUinsCsv = ""
        @Volatile var prefPkBlacklistUinsCsv = ""
        @Volatile var prefHiredRecallProgress = 72
+        @Volatile var enableActiveVisit = true
+        @Volatile var prefActiveVisitFriends = true
+        @Volatile var prefActiveVisitStrangers = true
+        @Volatile var prefActiveVisitDailyLimit = 20
+        @Volatile var lastActiveVisitTimeMillis: Long = 0L
        @Volatile var cachedHireableFriends: List<QQPetDirectBridge.HireableFriend> = emptyList()
        @Volatile var enableFriendCare = false
        @Volatile var prefFriendCareEnergyThreshold = 60
@@ -668,6 +673,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
           prefDebugLog = prefs.getBoolean(PreferencesHelper.KEY_DEBUG_LOG, false)
            enableHireFriend = prefs.getBoolean(PreferencesHelper.KEY_HIRE_FRIEND_ENABLED, true)
            enableFriendCare = prefs.getBoolean(PreferencesHelper.KEY_FRIEND_CARE_ENABLED, false)
+           enableActiveVisit = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_ENABLED, true)
+           prefActiveVisitFriends = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_FRIENDS, true)
+           prefActiveVisitStrangers = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_STRANGERS, true)
+           prefActiveVisitDailyLimit = prefs.getInt(PreferencesHelper.KEY_ACTIVE_VISIT_DAILY_LIMIT, 20)
            prefFriendCareEnergyThreshold = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_ENERGY_THRESHOLD, 60)
            prefFriendCareCleanThreshold = prefs.getInt(PreferencesHelper.KEY_FRIEND_CARE_CLEAN_THRESHOLD, 60)
            com.copilot.qqpet.hook.HookLog.isDebugEnabled = prefDebugLog
@@ -754,7 +763,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        friendCareCleanThreshold: Int = prefFriendCareCleanThreshold,
        autoPk: Boolean = enableAutoPk,
        pkBlacklistUinsCsv: String = prefPkBlacklistUinsCsv,
-       hiredRecallProgress: Int = prefHiredRecallProgress
+       hiredRecallProgress: Int = prefHiredRecallProgress,
+        activeVisit: Boolean = enableActiveVisit,
+        activeVisitFriends: Boolean = prefActiveVisitFriends,
+        activeVisitStrangers: Boolean = prefActiveVisitStrangers,
+        activeVisitDailyLimit: Int = prefActiveVisitDailyLimit
   ) {
       enableStudy = study
       enableWork = work
@@ -786,6 +799,10 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
        prefFriendCareCleanThreshold = friendCareCleanThreshold
        prefPkBlacklistUinsCsv = pkBlacklistUinsCsv
        prefHiredRecallProgress = hiredRecallProgress; WakeLockHelper.wakeUpImmediately()
+       enableActiveVisit = activeVisit
+       prefActiveVisitFriends = activeVisitFriends
+       prefActiveVisitStrangers = activeVisitStrangers
+       prefActiveVisitDailyLimit = activeVisitDailyLimit
        com.copilot.qqpet.hook.HookLog.isDebugEnabled = debugLog
        Log.d(TAG, "配置已更新: 学习=$study, 打工=$work, 照顾=$care, 冒险=$adventure, 结算=$settle, 学校阶段=$schoolStage, 科目=$courseSubject, 课时=$courseDuration, 工种=$workType, 工时=$workDuration, 体力阈值=$careEnergyThreshold, 清洁阈值=$careCleanThreshold, 好友照料=$friendCareEnabled($friendCareEnergyThreshold/$friendCareCleanThreshold), 雇佣召回=${if (hiredRecallProgress > 0) "${hiredRecallProgress}%" else "关闭"}")
    }
@@ -1097,6 +1114,14 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
            lastLikeBackTimeMillis = now
            maintenanceDispatched = true
            executeAutoLikeBack(context)
+           delay(1200L)
+       }
+
+       // 4.3.1 若本轮未执行其他维护，按错峰间隔检查主动串门踩踩
+       if (!maintenanceDispatched && enableActiveVisit && (now - lastActiveVisitTimeMillis > 8 * 60 * 1000L)) {
+           lastActiveVisitTimeMillis = now
+           maintenanceDispatched = true
+           executeActiveVisitSession(context, isManual = false)
            delay(1200L)
        }
 
@@ -1704,6 +1729,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
                        }
                    }
                }
+                "active_visit" -> {
+                    executeActiveVisitSession(context, isManual = true)
+                }
                 "like_back" -> {
                     val petId = ensurePetId(context) ?: return@launch
                     sendLog(context, "🐾 [互踩实测] 正在拉取来踩过我家的小伙伴访客记录...")
@@ -2683,40 +2711,178 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         }
 
 
+
+    fun loadStrangerUinPool(context: Context): Set<Long> {
+        val pool = mutableSetOf<Long>()
+        try {
+            val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+            val poolKey = AccountSessionGuard.scopedKey(PreferencesHelper.KEY_STRANGER_UIN_POOL, currentActiveUin)
+            val csv = prefs.getString(poolKey, prefs.getString(PreferencesHelper.KEY_STRANGER_UIN_POOL, "") ?: "") ?: ""
+            if (csv.isNotBlank()) {
+                csv.split(",").mapNotNull { it.trim().toLongOrNull() }.filter { it > 0L }.forEach { pool.add(it) }
+            }
+        } catch (_: Throwable) {}
+        return pool
+    }
+
+    fun recordStrangersToPool(context: Context, newUins: Collection<Long>) {
+        if (newUins.isEmpty()) return
+        try {
+            val pool = loadStrangerUinPool(context).toMutableSet()
+            val beforeSize = pool.size
+            newUins.filter { it > 0L }.forEach { pool.add(it) }
+            if (pool.size > beforeSize) {
+                val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+                val poolKey = AccountSessionGuard.scopedKey(PreferencesHelper.KEY_STRANGER_UIN_POOL, currentActiveUin)
+                val csv = pool.joinToString(",")
+                prefs.edit().putString(poolKey, csv).apply()
+                Log.d(TAG, "陌生小宠蓄水池已扩充 (+$${pool.size - beforeSize} 位，当前总计 $${pool.size} 位)")
+            }
+        } catch (_: Throwable) {}
+    }
+
    private suspend fun executeAutoLikeBack(context: Context) {
        try {
            val (code, members) = fetchLikeListAwait()
            if (code == 0 && members.isNotEmpty()) {
                syncTodayLikedUins(context)
+               val friendUinSet = loadCachedHireableFriends(context).map { it.uin }.filter { it > 0L }.toSet()
+               val ownUin = bridge.getCurrentRuntimeUin().ifEmpty { currentActiveUin }.toLongOrNull() ?: 0L
+
+               // 自动将新来访的非好友沉淀至活跃陌生人蓄水池
+               val newStrangers = ActiveVisitHelper.extractStrangersFromVisitors(members.map { it.uin }, ownUin, friendUinSet)
+               if (newStrangers.isNotEmpty()) {
+                   recordStrangersToPool(context, newStrangers)
+               }
+
                val toLike = members.filter { it.canLikeBack && !todayLikedUins.contains(it.uin) }
                val batchLike = toLike.take(5)
                if (batchLike.isNotEmpty()) {
                    var successCount = 0
                    for (m in batchLike) {
-                       val name = if (m.nick.isNotEmpty()) m.nick else "${m.uin}"
+                       val isFr = friendUinSet.contains(m.uin)
+                       val typeDesc = if (isFr) "好友" else "陌生访客"
+                       val name = if (m.nick.isNotEmpty()) m.nick else "$typeDesc(${m.uin})"
                        val (lCode, lErr) = sendLikeAwait(m.uin)
                       if (lCode == 0 || lCode == 136202) {
                           markFriendLikedToday(context, m.uin)
                           if (lCode == 0) {
                               successCount++
-                              sendLog(context, "✅ [自动互踩] 成功回踩好友 $name！")
+                              sendLog(context, "✅ [自动回踩] 成功回赠$typeDesc $name！")
                                randomHumanDelay(2000L, 3500L)
                           } else {
-                              Log.i(TAG, "自动回踩好友 $name 今日已互踩过 (已登记防重)")
+                              Log.i(TAG, "自动回踩$typeDesc $name 今日已互踩过 (已登记防重)")
                                randomHumanDelay(1500L, 2500L)
                           }
                       } else {
-                          Log.i(TAG, "自动回踩好友 $name 回包: code=$lCode ${lErr ?: ""}")
+                          Log.i(TAG, "自动回踩$typeDesc $name 回包: code=$lCode ${lErr ?: ""}")
                            randomHumanDelay(1800L, 2800L)
                       }
                    }
                     if (successCount > 0) {
-                        sendLog(context, "🎉 [自动互踩] 本轮自动回踩完成，成功回踩 $successCount 位好友")
+                        sendLog(context, "🎉 [自动回踩] 本轮来访回赠完成，成功回礼 $successCount 位小伙伴 (好友+陌生人)")
                     }
                 }
             }
         } catch (t: Throwable) {
             Log.w(TAG, "自动回踩巡检异常: ${t.message}")
+        }
+    }
+
+    suspend fun executeActiveVisitSession(context: Context, isManual: Boolean) {
+        try {
+            if (!isManual && !enableActiveVisit) return
+            syncTodayLikedUins(context)
+
+            // 1. 获取好友小宠列表
+            var friends = loadCachedHireableFriends(context)
+            if (friends.isEmpty()) {
+                friends = fetchAllHireableFriendsAwait(context, enrichSelectedAndTop = false)
+            }
+            val friendUins = friends.map { it.uin }.filter { it > 0L }
+            val friendUinSet = friendUins.toSet()
+            val ownUin = bridge.getCurrentRuntimeUin().ifEmpty { currentActiveUin }.toLongOrNull() ?: 0L
+
+            // 2. 获取并自动扩充陌生人池
+            val strangerPool = loadStrangerUinPool(context).toMutableSet()
+            try {
+                val (vCode, vMembers) = fetchLikeListAwait()
+                if (vCode == 0 && vMembers.isNotEmpty()) {
+                    val extracted = ActiveVisitHelper.extractStrangersFromVisitors(vMembers.map { it.uin }, ownUin, friendUinSet)
+                    if (extracted.isNotEmpty()) {
+                        recordStrangersToPool(context, extracted)
+                        strangerPool.addAll(extracted)
+                    }
+                }
+            } catch (_: Throwable) {}
+
+            // 若池子仍然为空，尝试从历史互踩记录中提取非好友作为种子
+            if (strangerPool.isEmpty()) {
+                try {
+                    val prefs = context.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+                    val csvKey = AccountSessionGuard.scopedKey("key_liked_uins_csv", currentActiveUin)
+                    val historyCsv = prefs.getString(csvKey, "") ?: ""
+                    val historyUins = historyCsv.split(",").mapNotNull { it.trim().toLongOrNull() }
+                    val seeded = ActiveVisitHelper.extractStrangersFromVisitors(historyUins, ownUin, friendUinSet)
+                    if (seeded.isNotEmpty()) {
+                        recordStrangersToPool(context, seeded)
+                        strangerPool.addAll(seeded)
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            // 3. 计算本轮主动串门的目标列表
+            val maxLimit = if (prefActiveVisitDailyLimit > 0) prefActiveVisitDailyLimit else 20
+            val targets = ActiveVisitHelper.resolveActiveVisitTargets(
+                friendUins = friendUins,
+                strangerPool = strangerPool,
+                enableFriends = prefActiveVisitFriends,
+                enableStrangers = prefActiveVisitStrangers,
+                todayLikedUins = todayLikedUins,
+                maxDailyLimit = maxLimit
+            )
+
+            if (targets.isEmpty()) {
+                val reason = if (!prefActiveVisitFriends && !prefActiveVisitStrangers) {
+                    "未开启好友或陌生人串门选项"
+                } else {
+                    "今日设定配额已满或目标已全部完成串门"
+                }
+                if (isManual) {
+                    sendLog(context, "ℹ️ [主动串门] 暂无待串门目标 ($reason)")
+                } else {
+                    Log.i(TAG, "主动串门巡检: 暂无待串门目标 ($reason)")
+                }
+                return
+            }
+
+            val friendCount = targets.count { it.isFriend }
+            val strangerCount = targets.count { !it.isFriend }
+            sendLog(context, "🚶 [主动串门] 开始执行串门踩踩: 待串门好友 $friendCount 位，随机陌生小宠 $strangerCount 位 (单日安全上限: $maxLimit)")
+
+            var successCount = 0
+            for (t in targets) {
+                val label = if (t.isFriend) "好友" else "随机陌生小宠"
+                val (code, err) = sendLikeAwait(t.uin)
+                if (code == 0 || code == 136202) {
+                    markFriendLikedToday(context, t.uin)
+                    if (code == 0) {
+                        successCount++
+                        sendLog(context, "✅ [主动串门] 成功串门踩踩$label (${t.uin})！")
+                        randomHumanDelay(3000L, 5500L)
+                    } else {
+                        Log.i(TAG, "主动串门$label (${t.uin}) 今日已踩过 (自动登记防重)")
+                        randomHumanDelay(1000L, 2000L)
+                    }
+                } else {
+                    Log.i(TAG, "主动串门$label (${t.uin}) 回包: code=$code ${err ?: ""}")
+                    randomHumanDelay(1500L, 2500L)
+                }
+            }
+
+            sendLog(context, "🎉 [主动串门] 本轮主动串门完成！共成功送心 $successCount 位小伙伴 (好友+随机陌生人)")
+        } catch (t: Throwable) {
+            Log.w(TAG, "主动串门异常: ${t.message}")
         }
     }
 

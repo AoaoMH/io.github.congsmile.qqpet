@@ -38,6 +38,12 @@ object PreferencesHelper {
   const val KEY_HIRED_RECALL_PROGRESS = "key_hired_recall_progress"
   const val KEY_PK_DAILY_DATE = "key_pk_daily_date"
   const val KEY_PK_DAILY_COUNT = "key_pk_daily_count"
+  const val KEY_ACTIVE_VISIT_ENABLED = "key_active_visit_enabled"
+  const val KEY_ACTIVE_VISIT_FRIENDS = "key_active_visit_friends"
+  const val KEY_ACTIVE_VISIT_STRANGERS = "key_active_visit_strangers"
+  const val KEY_ACTIVE_VISIT_DAILY_LIMIT = "key_active_visit_daily_limit"
+  const val KEY_STRANGER_UIN_POOL = "key_stranger_uin_pool"
+
 
   fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
