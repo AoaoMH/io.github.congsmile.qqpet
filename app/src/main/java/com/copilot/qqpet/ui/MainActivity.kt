@@ -44,10 +44,20 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         initStatusCard()
+        pingQQHost()
         try {
             val intent = Intent(HookEntry.ACTION_TRIGGER_ACTION).apply {
                 setPackage(HookEntry.TARGET_PACKAGE)
                 putExtra(PetAdventureEngine.EXTRA_ACTION, "query_account_status")
+            }
+            sendBroadcast(intent)
+        } catch (_: Throwable) {}
+    }
+
+    private fun pingQQHost() {
+        try {
+            val intent = Intent(HookEntry.ACTION_PING).apply {
+                setPackage(HookEntry.TARGET_PACKAGE)
             }
             sendBroadcast(intent)
         } catch (_: Throwable) {}
@@ -61,13 +71,6 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Throwable) {}
         }
     }
-
-    /**
-     * 检查模块激活状态：
-     * 1. 自身被 LSPosed Hook 篡改为 true；
-     * 2. 或已成功与 QQ 宿主发包内核建立双向连通。
-     */
-    fun isModuleActive(): Boolean = false
 
     private fun updateStatusCard(active: Boolean) {
         runOnUiThread {
@@ -85,8 +88,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun initStatusCard() {
         val prefs = PreferencesHelper.getPrefs(this)
-        val active = isModuleActive() || prefs.getBoolean("key_module_active_verified", false)
+        val lastActive = prefs.getLong("key_module_last_active_time", 0L)
+        val active = prefs.getBoolean("key_module_active_verified", false) ||
+                (lastActive > 0 && System.currentTimeMillis() - lastActive < 7 * 86400000L)
         updateStatusCard(active)
+
+        binding.cardStatus.applyApplePressEffect()
+        binding.cardStatus.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            val currentActive = prefs.getBoolean("key_module_active_verified", false) ||
+                    (lastActive > 0 && System.currentTimeMillis() - lastActive < 7 * 86400000L)
+            if (!currentActive) {
+                pingQQHost()
+                Toast.makeText(this, "正在向 QQ 发送激活探测，请确保 QQ 在后台运行~", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "模块服务正常，与 QQ 内核通信良好~", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun initOfficialGroupCard() {
@@ -231,14 +249,21 @@ class MainActivity : AppCompatActivity() {
             addAction(PetAdventureEngine.ACTION_ENGINE_LOG)
             addAction(PetAdventureEngine.ACTION_SYNC_WORK_PLACES)
             addAction(PetAdventureEngine.ACTION_SYNC_ACCOUNT_STATUS)
+            addAction(HookEntry.ACTION_PONG)
         }
         logReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 updateStatusCard(true)
-                PreferencesHelper.getPrefs(this@MainActivity).edit().putBoolean("key_module_active_verified", true).apply()
+                PreferencesHelper.getPrefs(this@MainActivity).edit()
+                    .putBoolean("key_module_active_verified", true)
+                    .putLong("key_module_last_active_time", System.currentTimeMillis())
+                    .apply()
                 if (intent.action == PetAdventureEngine.ACTION_ENGINE_LOG) {
                     val msg = intent.getStringExtra(PetAdventureEngine.EXTRA_LOG_TEXT) ?: return
                     appendLog(msg)
+                } else if (intent.action == HookEntry.ACTION_PONG) {
+                    val reason = intent.getStringExtra("extra_reason") ?: "心跳回传"
+                    appendLog("🟢 [在线确认] 收到 QQ 内核 Pong 握手 ($reason)")
                 }
             }
         }

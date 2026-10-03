@@ -35,6 +35,8 @@ class HookEntry : XposedModule() {
         const val ACTION_TRIGGER_ADVENTURE = "io.github.congsmile.qqpet.ACTION_TRIGGER_ADVENTURE"
         const val ACTION_TRIGGER_ACTION = "io.github.congsmile.qqpet.ACTION_TRIGGER_ACTION"
         const val ACTION_UPDATE_CONFIG = "io.github.congsmile.qqpet.ACTION_UPDATE_CONFIG"
+        const val ACTION_PING = "io.github.congsmile.qqpet.ACTION_PING"
+        const val ACTION_PONG = "io.github.congsmile.qqpet.ACTION_PONG"
 
         @Volatile
         var instance: HookEntry? = null
@@ -62,13 +64,7 @@ class HookEntry : XposedModule() {
         val packageName = param.packageName
         val classLoader = param.classLoader
 
-        // 1. 本模块自身激活自检 Hook
-        if (packageName == MODULE_PACKAGE) {
-            hookModuleActive(classLoader)
-            return
-        }
-
-        // 2. 仅拦截 QQ 主进程
+        // 仅拦截 QQ 主进程，LSPosed 模块自身无需且无法注入
         if (packageName != TARGET_PACKAGE) {
             return
         }
@@ -157,19 +153,6 @@ class HookEntry : XposedModule() {
         QQSettingInjector.resetHookState()
     }
 
-    private fun hookModuleActive(classLoader: ClassLoader) {
-        try {
-            val mainActivityCls = classLoader.loadClass(MAIN_ACTIVITY_CLASS)
-            val method = mainActivityCls.getDeclaredMethod("isModuleActive")
-            hook(method).intercept {
-                true
-            }
-            HookLog.log(TAG, "已成功挂钩自身 isModuleActive 返回 true (API 102)")
-        } catch (t: Throwable) {
-            HookLog.log(TAG, "Hook isModuleActive 异常: ${t.message}")
-        }
-    }
-
     private fun hookSplashActivity(classLoader: ClassLoader) {
         if (isSplashHooked) return
         try {
@@ -246,6 +229,7 @@ class HookEntry : XposedModule() {
             isReceiverRegistered = true
             HookLog.log(TAG, "跨进程广播接收器注册就绪 (来源: $from)")
             globalEngine?.sendReadySignal(appContext)
+            sendPong(appContext, "内核启动")
         }
 
         checkLoginAndStartLoop(appContext, classLoader, from)
@@ -296,10 +280,15 @@ class HookEntry : XposedModule() {
             addAction(ACTION_TRIGGER_ADVENTURE)
             addAction(ACTION_TRIGGER_ACTION)
             addAction(ACTION_UPDATE_CONFIG)
+            addAction(ACTION_PING)
         }
         adventureReceiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 when (intent.action) {
+                    ACTION_PING -> {
+                        HookLog.log(TAG, "收到伴侣 Ping 探测广播，立即回传 Pong 确认激活！")
+                        sendPong(ctx, "收到Ping")
+                    }
                     ACTION_UPDATE_CONFIG -> {
                         val prefs = ctx.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
                         val editor = prefs.edit()
@@ -425,10 +414,12 @@ class HookEntry : XposedModule() {
                         } else {
                             globalEngine?.runAction(ctx, action)
                         }
+                        sendPong(ctx, "执行指令:$action")
                     }
                     ACTION_TRIGGER_ADVENTURE -> {
                         HookLog.log(TAG, "收到一键测试冒险探索指令！")
                         globalEngine?.runAction(ctx, "adventure")
+                        sendPong(ctx, "触发冒险")
                     }
                 }
             }
@@ -437,6 +428,21 @@ class HookEntry : XposedModule() {
             context.registerReceiver(adventureReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             context.registerReceiver(adventureReceiver, filter)
+        }
+    }
+
+    private fun sendPong(context: Context, reason: String) {
+        try {
+            val pongIntent = Intent(ACTION_PONG).apply {
+                setPackage(MODULE_PACKAGE)
+                putExtra("extra_time", System.currentTimeMillis())
+                putExtra("extra_reason", reason)
+                putExtra("extra_engine_ready", globalBridge?.isReady == true)
+                putExtra("extra_loop_running", PetAdventureEngine.isLoopRunning)
+            }
+            context.sendBroadcast(pongIntent)
+        } catch (t: Throwable) {
+            HookLog.log(TAG, "回传 Pong 异常: ${t.message}")
         }
     }
 
