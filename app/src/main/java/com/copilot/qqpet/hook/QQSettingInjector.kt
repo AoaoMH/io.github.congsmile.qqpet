@@ -1,24 +1,19 @@
 package com.copilot.qqpet.hook
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.copilot.qqpet.HookEntry
-import com.copilot.qqpet.engine.StealthScheduler
-import com.copilot.qqpet.ui.PreferencesHelper
 import com.copilot.qqpet.ui.QQSettingDialog
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
-import java.lang.reflect.Constructor
-import java.lang.reflect.Field
-import java.lang.reflect.Method
-import java.lang.reflect.Proxy
 
 object QQSettingInjector {
 
     private const val TAG = "QQSettingInjector"
+    private const val DEFAULT_ITEM_INDEX = 2
+
     @Volatile
     var isHooked = false
         private set
@@ -30,23 +25,11 @@ object QQSettingInjector {
     fun inject(classLoader: ClassLoader) {
         if (isHooked) return
 
-        val providerClassNames = mutableListOf(
-            "com.tencent.mobileqq.setting.main.b",
-            "com.tencent.mobileqq.setting.main.MainSettingConfigProvider",
-            "com.tencent.mobileqq.setting.main.NewSettingConfigProvider"
-        )
-        // 自动探测拓展：防止 QQ 小版本 Proguard 混淆字母漂移 (如 a..z)
-        for (ch in 'a'..'z') {
-            val name = "com.tencent.mobileqq.setting.main.$ch"
-            if (!providerClassNames.contains(name)) {
-                providerClassNames.add(name)
-            }
-        }
-
+        val providerClassNames = resolveProviderClassNames()
         for (className in providerClassNames) {
             val providerCls = try {
                 Class.forName(className, false, classLoader)
-            } catch (t: Throwable) {
+            } catch (_: Throwable) {
                 continue
             }
 
@@ -65,151 +48,7 @@ object QQSettingInjector {
                         if (groupList.isEmpty()) return
 
                         try {
-                            val sampleGroup = groupList.first()
-                            val groupCls = sampleGroup.javaClass
-
-                            // 检查是否已经注入过，防止重复添加卡片
-                            for (item in groupList) {
-                                try {
-                                    val titleField = item.javaClass.declaredFields.firstOrNull { it.type == CharSequence::class.java }
-                                    if (titleField != null) {
-                                        titleField.isAccessible = true
-                                        val titleVal = titleField.get(item)?.toString()
-                                        if (titleVal?.contains("Q宠后台伴侣") == true) {
-                                            return
-                                        }
-                                    }
-                                } catch (_: Throwable) {}
-                            }
-
-                            // 使用通用条目处理器，支持多包名与动态自省保底
-                            val itemCandidateNames = listOf(
-                                "com.tencent.mobileqq.setting.processor.i",
-                                "com.tencent.mobileqq.setting.main.processor.i"
-                            )
-                            var itemCls: Class<*>? = null
-                            for (cName in itemCandidateNames) {
-                                try {
-                                    itemCls = Class.forName(cName, false, classLoader)
-                                    break
-                                } catch (_: Throwable) {}
-                            }
-                            if (itemCls == null) {
-                                for (f in groupCls.declaredFields) {
-                                    f.isAccessible = true
-                                    val obj = f.get(sampleGroup)
-                                    if (obj is List<*> && obj.isNotEmpty()) {
-                                        itemCls = obj.firstOrNull()?.javaClass
-                                        if (itemCls != null) break
-                                    }
-                                }
-                            }
-                            if (itemCls == null) return
-
-                            HookLog.log(TAG, "目标处理器 ${itemCls.name}:")
-
-                            // 查找通用图标
-                            var iconRes = ctx.resources.getIdentifier("qui_tuning", "drawable", ctx.packageName)
-                            if (iconRes == 0) {
-                                iconRes = ctx.resources.getIdentifier("qq_setting_me_icon", "drawable", ctx.packageName)
-                            }
-
-                            // 尝试实例化条目处理器
-                            var newItem: Any? = null
-                            for (c in itemCls.constructors) {
-                                c.isAccessible = true
-                                try {
-                                    val pTypes = c.parameterTypes
-                                    val args = arrayOfNulls<Any>(pTypes.size)
-                                    for (i in pTypes.indices) {
-                                        val pt = pTypes[i]
-                                        args[i] = when {
-                                            Context::class.java.isAssignableFrom(pt) -> ctx
-                                            pt == Integer.TYPE -> if (i == 1) 999520 else iconRes
-                                            CharSequence::class.java.isAssignableFrom(pt) -> "Q宠后台伴侣"
-                                            pt == java.lang.String::class.java -> "纯后台免打开全自动调度"
-                                            pt == java.lang.Boolean.TYPE -> true
-                                            else -> null
-                                        }
-                                    }
-                                    newItem = c.newInstance(*args)
-                                    HookLog.log(TAG, "成功创建 processor 实例 (args count=${pTypes.size})！")
-                                    break
-                                } catch (e: Throwable) {
-                                    HookLog.log(TAG, "构造失败: ${e.message}")
-                                }
-                            }
-
-                            if (newItem == null) return
-
-                            // 给标题字段赋值 "Q宠后台伴侣"
-                            for (f in itemCls.declaredFields) {
-                                f.isAccessible = true
-                                if ((f.name == "g" || f.name == "title") && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
-                                    f.set(newItem, "Q宠后台伴侣")
-                                    HookLog.log(TAG, "赋值字段 ${f.name} = Q宠后台伴侣")
-                                }
-                                if ((f.name == "h" || f.name == "subTitle") && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
-                                    f.set(newItem, "纯后台全自动调度")
-                                    HookLog.log(TAG, "赋值字段 ${f.name} = 纯后台全自动调度")
-                                }
-                            }
-
-                            // 绑定点击回调 (查找接收 Function0 或 OnClickListener 的方法)
-                            val clickListenerMethod = itemCls.declaredMethods.firstOrNull { m ->
-                                m.parameterTypes.size == 1 && (
-                                        m.parameterTypes[0].name.contains("Function0") ||
-                                        m.parameterTypes[0].name.contains("OnClickListener")
-                                )
-                            }
-
-                            if (clickListenerMethod != null) {
-                                val paramType = clickListenerMethod.parameterTypes[0]
-                                val clickProxy = Proxy.newProxyInstance(
-                                    classLoader,
-                                    arrayOf(paramType)
-                                ) { _, method, _ ->
-                                    if (method.name == "invoke" || method.name == "onClick") {
-                                        onSettingEntryClick(ctx)
-                                        val unitCls = classLoader.loadClass("kotlin.Unit")
-                                        return@newProxyInstance unitCls.getField("INSTANCE").get(null)
-                                    }
-                                    null
-                                }
-                                clickListenerMethod.invoke(newItem, clickProxy)
-                                HookLog.log(TAG, "成功绑定点击代理！")
-                            }
-
-                            // 构造 SettingGroup 包装 newItem
-                            for (c in groupCls.constructors) {
-                                c.isAccessible = true
-                                try {
-                                    val pTypes = c.parameterTypes
-                                    if (pTypes.isNotEmpty() && List::class.java.isAssignableFrom(pTypes[0])) {
-                                        val singleItemList = listOf(newItem)
-                                        val args = arrayOfNulls<Any>(pTypes.size)
-                                        args[0] = singleItemList
-                                        for (i in 1 until pTypes.size) {
-                                            val pt = pTypes[i]
-                                            args[i] = when {
-                                                CharSequence::class.java.isAssignableFrom(pt) -> ""
-                                                pt == Integer.TYPE -> 6
-                                                else -> null
-                                            }
-                                        }
-                                        val newGroup = c.newInstance(*args)
-                                        // 插入在第 2 个位置（紧随账号安全等关键项之后）
-                                        if (groupList.size >= 2) {
-                                            groupList.add(2, newGroup)
-                                        } else {
-                                            groupList.add(newGroup)
-                                        }
-                                        HookLog.log(TAG, "🎯 完美插入「Q宠后台伴侣」专属卡片 (API 82)！")
-                                        break
-                                    }
-                                } catch (_: Throwable) {}
-                            }
-
+                            handleSettingListInjection(ctx, groupList, classLoader, providerCls)
                         } catch (t: Throwable) {
                             HookLog.log(TAG, "挂载异常: ${Log.getStackTraceString(t)}")
                         }
@@ -222,6 +61,199 @@ object QQSettingInjector {
                 HookLog.log(TAG, "挂钩 $className 异常: ${t.message}")
             }
         }
+    }
+
+    private fun resolveProviderClassNames(): List<String> {
+        val list = mutableListOf(
+            "com.tencent.mobileqq.setting.main.b",
+            "com.tencent.mobileqq.setting.main.MainSettingConfigProvider",
+            "com.tencent.mobileqq.setting.main.NewSettingConfigProvider"
+        )
+        // 应对 QQ 小版本混淆字母漂移
+        for (ch in 'a'..'z') {
+            val name = "com.tencent.mobileqq.setting.main.$ch"
+            if (!list.contains(name)) list.add(name)
+        }
+        return list
+    }
+
+    private fun isAlreadyInjected(groupList: List<Any>): Boolean {
+        for (item in groupList) {
+            try {
+                val titleField = item.javaClass.declaredFields.firstOrNull { it.type == CharSequence::class.java }
+                if (titleField != null) {
+                    titleField.isAccessible = true
+                    val titleVal = titleField.get(item)?.toString()
+                    if (titleVal?.contains("Q宠后台伴侣") == true) return true
+                }
+            } catch (_: Throwable) {}
+        }
+        return false
+    }
+
+    private fun handleSettingListInjection(
+        ctx: Context,
+        groupList: MutableList<Any>,
+        classLoader: ClassLoader,
+        providerCls: Class<*>
+    ) {
+        if (isAlreadyInjected(groupList)) return
+
+        val sampleGroup = selectValidSampleGroup(groupList) ?: run {
+            HookLog.log(TAG, "未发现可用的常规条目分组，安全跳过注入")
+            return
+        }
+        val groupCls = sampleGroup.javaClass
+
+        val (contractCls, candidateClasses) = resolveContractAndCandidates(sampleGroup, classLoader, providerCls)
+        if (candidateClasses.isEmpty()) {
+            HookLog.log(TAG, "未发现可用的设置项候选类，放弃注入防崩溃")
+            return
+        }
+
+        val newItem = QQSettingItemFactory.createItemInstance(candidateClasses, contractCls, ctx) ?: run {
+            HookLog.log(TAG, "无法安全实例化任何条目处理器，安全跳过注入")
+            return
+        }
+
+        QQSettingItemFactory.bindItemContentAndClick(newItem, classLoader) {
+            onSettingEntryClick(ctx)
+        }
+
+        val newGroup = QQSettingItemFactory.createSettingGroup(groupCls, newItem) ?: run {
+            HookLog.log(TAG, "创建 SettingGroup 失败，跳过卡片注入")
+            return
+        }
+
+        if (groupList.size >= DEFAULT_ITEM_INDEX) {
+            groupList.add(DEFAULT_ITEM_INDEX, newGroup)
+        } else {
+            groupList.add(newGroup)
+        }
+        HookLog.log(TAG, "🎯 成功安全注入「Q宠后台伴侣」专属卡片 (API 82)！")
+    }
+
+    private fun selectValidSampleGroup(groupList: List<Any>): Any? {
+        for (group in groupList) {
+            val items = extractSampleItems(group)
+            if (items.isEmpty()) continue
+            val hasExcluded = items.any { isExcludedProcessor(it.javaClass) }
+            if (!hasExcluded) return group
+        }
+        return if (groupList.size > 1) groupList[1] else groupList.firstOrNull()
+    }
+
+    private fun isExcludedProcessor(cls: Class<*>): Boolean {
+        val name = cls.name.lowercase()
+        return name.contains("search") ||
+                name.endsWith(".processor.t") ||
+                name.contains("account") ||
+                name.contains("security")
+    }
+
+    private fun resolveProcessorFromProvider(providerCls: Class<*>): Class<*>? {
+        for (m in providerCls.methods) {
+            if (m.parameterTypes.size == 1 &&
+                Context::class.java.isAssignableFrom(m.parameterTypes[0]) &&
+                m.returnType.name.contains("com.tencent.mobileqq.setting.processor")
+            ) {
+                return m.returnType
+            }
+        }
+        return null
+    }
+
+    fun resolveContractAndCandidates(
+        sampleGroup: Any?,
+        classLoader: ClassLoader,
+        providerCls: Class<*>? = null
+    ): Pair<Class<*>?, List<Class<*>>> {
+        val candidates = mutableListOf<Class<*>>()
+
+        // 1. 优先从 Provider 工厂方法获取标准通用条目处理器类型
+        if (providerCls != null) {
+            val providerType = resolveProcessorFromProvider(providerCls)
+            if (providerType != null && QQSettingItemFactory.hasStandardItemConstructor(providerType)) {
+                candidates.add(providerType)
+            }
+        }
+
+        // 2. 尝试已知成熟通用的设置项处理器类名
+        val wellKnownNames = listOf(
+            "com.tencent.mobileqq.setting.processor.i",
+            "com.tencent.mobileqq.setting.main.processor.i",
+            "com.tencent.mobileqq.setting.processor.SimpleItemProcessor",
+            "com.tencent.mobileqq.setting.main.processor.SimpleItemProcessor",
+            "com.tencent.mobileqq.setting.processor.d"
+        )
+        for (name in wellKnownNames) {
+            try {
+                val cls = Class.forName(name, false, classLoader)
+                if (QQSettingItemFactory.hasStandardItemConstructor(cls) && !candidates.contains(cls)) {
+                    candidates.add(cls)
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // 3. 动态探测 sampleGroup 中的条目（排除专有业务类与搜索组件）
+        val sampleItems = if (sampleGroup != null) extractSampleItems(sampleGroup) else emptyList()
+        val contractCls = detectContractClass(sampleItems)
+
+        for (item in sampleItems) {
+            val cls = item.javaClass
+            if (isExcludedProcessor(cls)) continue
+            if (contractCls == null || contractCls.isAssignableFrom(cls)) {
+                if (!candidates.contains(cls)) candidates.add(cls)
+            }
+        }
+
+        // 4. 同包下扫描继承并验证契约
+        if (candidates.isEmpty() && contractCls != null) {
+            val pkg = contractCls.name.substringBeforeLast('.')
+            for (ch in 'a'..'z') {
+                try {
+                    val cls = Class.forName("$pkg.$ch", false, classLoader)
+                    if (isExcludedProcessor(cls)) continue
+                    if (contractCls.isAssignableFrom(cls) && !candidates.contains(cls)) {
+                        candidates.add(cls)
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+
+        return Pair(contractCls, candidates)
+    }
+
+    private fun extractSampleItems(sampleGroup: Any): List<Any> {
+        for (f in sampleGroup.javaClass.declaredFields) {
+            f.isAccessible = true
+            val obj = try { f.get(sampleGroup) } catch (_: Throwable) { null }
+            if (obj is List<*> && obj.isNotEmpty()) {
+                val list = obj.filterNotNull()
+                if (list.isNotEmpty()) return list
+            }
+        }
+        return emptyList()
+    }
+
+    fun detectContractClass(sampleItems: List<Any>): Class<*>? {
+        if (sampleItems.isEmpty()) return null
+        val firstItem = sampleItems.first()
+        var current: Class<*>? = firstItem.javaClass.superclass
+        var baseSettingClass: Class<*>? = null
+        while (current != null && current != Any::class.java) {
+            if (current.name.contains("com.tencent.mobileqq.setting")) {
+                baseSettingClass = current
+            }
+            current = current.superclass
+        }
+        if (baseSettingClass != null) return baseSettingClass
+
+        for (iface in firstItem.javaClass.interfaces) {
+            if (iface.name.contains("com.tencent.mobileqq.setting")) return iface
+        }
+        val superCls = firstItem.javaClass.superclass
+        return if (superCls != Any::class.java) superCls else firstItem.javaClass
     }
 
     private fun onSettingEntryClick(context: Context) {
