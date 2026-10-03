@@ -72,6 +72,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 经典 Xposed 激活自检钩子 (API 82/93):
+     * 若模块在支持的作用域内被 Hook，则返回 true；否则依赖双向 Ping-Pong 握手。
+     */
+    fun isModuleActive(): Boolean = false
+
     private fun updateStatusCard(active: Boolean) {
         runOnUiThread {
             if (active) {
@@ -89,14 +95,14 @@ class MainActivity : AppCompatActivity() {
     private fun initStatusCard() {
         val prefs = PreferencesHelper.getPrefs(this)
         val lastActive = prefs.getLong("key_module_last_active_time", 0L)
-        val active = prefs.getBoolean("key_module_active_verified", false) ||
+        val active = isModuleActive() || prefs.getBoolean("key_module_active_verified", false) ||
                 (lastActive > 0 && System.currentTimeMillis() - lastActive < 7 * 86400000L)
         updateStatusCard(active)
 
         binding.cardStatus.applyApplePressEffect()
         binding.cardStatus.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-            val currentActive = prefs.getBoolean("key_module_active_verified", false) ||
+            val currentActive = isModuleActive() || prefs.getBoolean("key_module_active_verified", false) ||
                     (lastActive > 0 && System.currentTimeMillis() - lastActive < 7 * 86400000L)
             if (!currentActive) {
                 pingQQHost()

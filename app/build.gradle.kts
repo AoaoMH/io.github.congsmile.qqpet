@@ -12,9 +12,9 @@ android {
        applicationId = "io.github.congsmile.qqpet"
        minSdk = 26
        targetSdk = 34
-        versionCode = 73
+        versionCode = 74
         // 版本递增规范：每次更新在末位增加 0.0.1 (1.0.0 -> 1.0.1 -> 1.0.2 -> ... -> 1.0.70)
-        versionName = "1.0.72"
+        versionName = "1.0.73"
     }
 
    buildTypes {
@@ -43,7 +43,7 @@ android {
 }
 
 dependencies {
-    compileOnly("io.github.libxposed:api:102.0.0")
+    compileOnly("de.robv.android.xposed:api:82")
     compileOnly("androidx.annotation:annotation:1.5.0")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")

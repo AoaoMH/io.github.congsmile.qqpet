@@ -9,6 +9,8 @@ import com.copilot.qqpet.HookEntry
 import com.copilot.qqpet.engine.StealthScheduler
 import com.copilot.qqpet.ui.PreferencesHelper
 import com.copilot.qqpet.ui.QQSettingDialog
+import de.robv.android.xposed.XC_MethodHook
+import de.robv.android.xposed.XposedBridge
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Method
@@ -54,159 +56,167 @@ object QQSettingInjector {
                         List::class.java.isAssignableFrom(m.returnType)
             } ?: continue
 
-            val hookModule = HookEntry.instance ?: break
             try {
-                hookModule.hook(getListMethod).intercept { chain ->
-                    val proceedResult = chain.proceed()
-                    val ctx = chain.getArg(0) as? Context
+                XposedBridge.hookMethod(getListMethod, object : XC_MethodHook() {
                     @Suppress("UNCHECKED_CAST")
-                    val groupList = proceedResult as? MutableList<Any>
-                    if (ctx == null || groupList == null || groupList.isEmpty()) {
-                        return@intercept proceedResult
-                    }
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val ctx = param.args[0] as? Context ?: return
+                        val groupList = param.result as? MutableList<Any> ?: return
+                        if (groupList.isEmpty()) return
 
-                    val prefs = ctx.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
-                    // QQ 设置页入口保持永久常驻
+                        try {
+                            val sampleGroup = groupList.first()
+                            val groupCls = sampleGroup.javaClass
 
-                    try {
-                        val sampleGroup = groupList.first()
-                        val groupCls = sampleGroup.javaClass
-
-                        // 使用通用条目处理器，支持多包名与动态自省保底
-                        val itemCandidateNames = listOf(
-                            "com.tencent.mobileqq.setting.processor.i",
-                            "com.tencent.mobileqq.setting.main.processor.i"
-                        )
-                        var itemCls: Class<*>? = null
-                        for (cName in itemCandidateNames) {
-                            try {
-                                itemCls = Class.forName(cName, false, classLoader)
-                                break
-                            } catch (_: Throwable) {}
-                        }
-                        if (itemCls == null) {
-                            for (f in groupCls.declaredFields) {
-                                f.isAccessible = true
-                                val obj = f.get(sampleGroup)
-                                if (obj is List<*> && obj.isNotEmpty()) {
-                                    itemCls = obj.firstOrNull()?.javaClass
-                                    if (itemCls != null) break
-                                }
+                            // 检查是否已经注入过，防止重复添加卡片
+                            for (item in groupList) {
+                                try {
+                                    val titleField = item.javaClass.declaredFields.firstOrNull { it.type == CharSequence::class.java }
+                                    if (titleField != null) {
+                                        titleField.isAccessible = true
+                                        val titleVal = titleField.get(item)?.toString()
+                                        if (titleVal?.contains("Q宠后台伴侣") == true) {
+                                            return
+                                        }
+                                    }
+                                } catch (_: Throwable) {}
                             }
-                        }
-                        if (itemCls == null) return@intercept proceedResult
 
-                        HookLog.log(TAG, "目标处理器 ${itemCls.name}:")
-
-                        // 查找通用图标
-                        var iconRes = ctx.resources.getIdentifier("qui_tuning", "drawable", ctx.packageName)
-                        if (iconRes == 0) {
-                            iconRes = ctx.resources.getIdentifier("qq_setting_me_icon", "drawable", ctx.packageName)
-                        }
-
-                        // 尝试实例化条目处理器
-                        var newItem: Any? = null
-                        for (c in itemCls.constructors) {
-                            c.isAccessible = true
-                            try {
-                                val pTypes = c.parameterTypes
-                                val args = arrayOfNulls<Any>(pTypes.size)
-                                for (i in pTypes.indices) {
-                                    val pt = pTypes[i]
-                                    args[i] = when {
-                                        Context::class.java.isAssignableFrom(pt) -> ctx
-                                        pt == Integer.TYPE -> if (i == 1) 999520 else iconRes
-                                        CharSequence::class.java.isAssignableFrom(pt) -> "Q宠后台伴侣"
-                                        pt == java.lang.String::class.java -> "纯后台免打开全自动调度"
-                                        pt == java.lang.Boolean.TYPE -> true
-                                        else -> null
+                            // 使用通用条目处理器，支持多包名与动态自省保底
+                            val itemCandidateNames = listOf(
+                                "com.tencent.mobileqq.setting.processor.i",
+                                "com.tencent.mobileqq.setting.main.processor.i"
+                            )
+                            var itemCls: Class<*>? = null
+                            for (cName in itemCandidateNames) {
+                                try {
+                                    itemCls = Class.forName(cName, false, classLoader)
+                                    break
+                                } catch (_: Throwable) {}
+                            }
+                            if (itemCls == null) {
+                                for (f in groupCls.declaredFields) {
+                                    f.isAccessible = true
+                                    val obj = f.get(sampleGroup)
+                                    if (obj is List<*> && obj.isNotEmpty()) {
+                                        itemCls = obj.firstOrNull()?.javaClass
+                                        if (itemCls != null) break
                                     }
                                 }
-                                newItem = c.newInstance(*args)
-                                HookLog.log(TAG, "成功创建 processor 实例 (args count=${pTypes.size})！")
-                                break
-                            } catch (e: Throwable) {
-                                HookLog.log(TAG, "构造失败: ${e.message}")
                             }
-                        }
+                            if (itemCls == null) return
 
-                        if (newItem == null) return@intercept proceedResult
+                            HookLog.log(TAG, "目标处理器 ${itemCls.name}:")
 
-                        // 给标题字段赋值 "Q宠后台伴侣"
-                        for (f in itemCls.declaredFields) {
-                            f.isAccessible = true
-                            if ((f.name == "g" || f.name == "title") && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
-                                f.set(newItem, "Q宠后台伴侣")
-                                HookLog.log(TAG, "赋值字段 ${f.name} = Q宠后台伴侣")
+                            // 查找通用图标
+                            var iconRes = ctx.resources.getIdentifier("qui_tuning", "drawable", ctx.packageName)
+                            if (iconRes == 0) {
+                                iconRes = ctx.resources.getIdentifier("qq_setting_me_icon", "drawable", ctx.packageName)
                             }
-                            if ((f.name == "h" || f.name == "subTitle") && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
-                                f.set(newItem, "纯后台全自动调度")
-                                HookLog.log(TAG, "赋值字段 ${f.name} = 纯后台全自动调度")
-                            }
-                        }
 
-                        // 绑定点击回调 (查找接收 Function0 或 OnClickListener 的方法)
-                        val clickListenerMethod = itemCls.declaredMethods.firstOrNull { m ->
-                            m.parameterTypes.size == 1 && (
-                                    m.parameterTypes[0].name.contains("Function0") ||
-                                    m.parameterTypes[0].name.contains("OnClickListener")
-                            )
-                        }
-
-                        if (clickListenerMethod != null) {
-                            val paramType = clickListenerMethod.parameterTypes[0]
-                            val clickProxy = Proxy.newProxyInstance(
-                                classLoader,
-                                arrayOf(paramType)
-                            ) { _, method, _ ->
-                                if (method.name == "invoke" || method.name == "onClick") {
-                                    onSettingEntryClick(ctx)
-                                    val unitCls = classLoader.loadClass("kotlin.Unit")
-                                    return@newProxyInstance unitCls.getField("INSTANCE").get(null)
-                                }
-                                null
-                            }
-                            clickListenerMethod.invoke(newItem, clickProxy)
-                            HookLog.log(TAG, "成功绑定点击代理！")
-                        }
-
-                        // 构造 SettingGroup 包装 newItem
-                        for (c in groupCls.constructors) {
-                            c.isAccessible = true
-                            try {
-                                val pTypes = c.parameterTypes
-                                if (pTypes.isNotEmpty() && List::class.java.isAssignableFrom(pTypes[0])) {
-                                    val singleItemList = listOf(newItem)
+                            // 尝试实例化条目处理器
+                            var newItem: Any? = null
+                            for (c in itemCls.constructors) {
+                                c.isAccessible = true
+                                try {
+                                    val pTypes = c.parameterTypes
                                     val args = arrayOfNulls<Any>(pTypes.size)
-                                    args[0] = singleItemList
-                                    for (i in 1 until pTypes.size) {
+                                    for (i in pTypes.indices) {
                                         val pt = pTypes[i]
                                         args[i] = when {
-                                            CharSequence::class.java.isAssignableFrom(pt) -> ""
-                                            pt == Integer.TYPE -> 6
+                                            Context::class.java.isAssignableFrom(pt) -> ctx
+                                            pt == Integer.TYPE -> if (i == 1) 999520 else iconRes
+                                            CharSequence::class.java.isAssignableFrom(pt) -> "Q宠后台伴侣"
+                                            pt == java.lang.String::class.java -> "纯后台免打开全自动调度"
+                                            pt == java.lang.Boolean.TYPE -> true
                                             else -> null
                                         }
                                     }
-                                    val newGroup = c.newInstance(*args)
-                                    // 插入在第 2 个位置（紧随账号安全等关键项之后）
-                                    if (groupList.size >= 2) {
-                                        groupList.add(2, newGroup)
-                                    } else {
-                                        groupList.add(newGroup)
-                                    }
-                                    HookLog.log(TAG, "🎯 完美插入「Q宠后台伴侣」专属卡片 (LibXposed 102)！")
+                                    newItem = c.newInstance(*args)
+                                    HookLog.log(TAG, "成功创建 processor 实例 (args count=${pTypes.size})！")
                                     break
+                                } catch (e: Throwable) {
+                                    HookLog.log(TAG, "构造失败: ${e.message}")
                                 }
-                            } catch (_: Throwable) {}
-                        }
+                            }
 
-                    } catch (t: Throwable) {
-                        HookLog.log(TAG, "挂载异常: ${Log.getStackTraceString(t)}")
+                            if (newItem == null) return
+
+                            // 给标题字段赋值 "Q宠后台伴侣"
+                            for (f in itemCls.declaredFields) {
+                                f.isAccessible = true
+                                if ((f.name == "g" || f.name == "title") && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
+                                    f.set(newItem, "Q宠后台伴侣")
+                                    HookLog.log(TAG, "赋值字段 ${f.name} = Q宠后台伴侣")
+                                }
+                                if ((f.name == "h" || f.name == "subTitle") && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
+                                    f.set(newItem, "纯后台全自动调度")
+                                    HookLog.log(TAG, "赋值字段 ${f.name} = 纯后台全自动调度")
+                                }
+                            }
+
+                            // 绑定点击回调 (查找接收 Function0 或 OnClickListener 的方法)
+                            val clickListenerMethod = itemCls.declaredMethods.firstOrNull { m ->
+                                m.parameterTypes.size == 1 && (
+                                        m.parameterTypes[0].name.contains("Function0") ||
+                                        m.parameterTypes[0].name.contains("OnClickListener")
+                                )
+                            }
+
+                            if (clickListenerMethod != null) {
+                                val paramType = clickListenerMethod.parameterTypes[0]
+                                val clickProxy = Proxy.newProxyInstance(
+                                    classLoader,
+                                    arrayOf(paramType)
+                                ) { _, method, _ ->
+                                    if (method.name == "invoke" || method.name == "onClick") {
+                                        onSettingEntryClick(ctx)
+                                        val unitCls = classLoader.loadClass("kotlin.Unit")
+                                        return@newProxyInstance unitCls.getField("INSTANCE").get(null)
+                                    }
+                                    null
+                                }
+                                clickListenerMethod.invoke(newItem, clickProxy)
+                                HookLog.log(TAG, "成功绑定点击代理！")
+                            }
+
+                            // 构造 SettingGroup 包装 newItem
+                            for (c in groupCls.constructors) {
+                                c.isAccessible = true
+                                try {
+                                    val pTypes = c.parameterTypes
+                                    if (pTypes.isNotEmpty() && List::class.java.isAssignableFrom(pTypes[0])) {
+                                        val singleItemList = listOf(newItem)
+                                        val args = arrayOfNulls<Any>(pTypes.size)
+                                        args[0] = singleItemList
+                                        for (i in 1 until pTypes.size) {
+                                            val pt = pTypes[i]
+                                            args[i] = when {
+                                                CharSequence::class.java.isAssignableFrom(pt) -> ""
+                                                pt == Integer.TYPE -> 6
+                                                else -> null
+                                            }
+                                        }
+                                        val newGroup = c.newInstance(*args)
+                                        // 插入在第 2 个位置（紧随账号安全等关键项之后）
+                                        if (groupList.size >= 2) {
+                                            groupList.add(2, newGroup)
+                                        } else {
+                                            groupList.add(newGroup)
+                                        }
+                                        HookLog.log(TAG, "🎯 完美插入「Q宠后台伴侣」专属卡片 (API 82)！")
+                                        break
+                                    }
+                                } catch (_: Throwable) {}
+                            }
+
+                        } catch (t: Throwable) {
+                            HookLog.log(TAG, "挂载异常: ${Log.getStackTraceString(t)}")
+                        }
                     }
-                    return@intercept proceedResult
-                }
+                })
                 isHooked = true
-                HookLog.log(TAG, "成功挂钩设置项提供者: $className (LibXposed 102)")
+                HookLog.log(TAG, "成功挂钩设置项提供者: $className (API 82)")
                 break
             } catch (t: Throwable) {
                 HookLog.log(TAG, "挂钩 $className 异常: ${t.message}")
