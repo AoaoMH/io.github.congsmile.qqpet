@@ -1,18 +1,23 @@
 package com.copilot.qqpet.protocol
 
+import android.content.Context
 import android.util.Base64
 import com.copilot.qqpet.hook.HookLog as Log
+import com.copilot.qqpet.HookEntry
 import com.copilot.qqpet.engine.AccountSessionGuard
 import java.nio.charset.StandardCharsets
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
 
 /**
  * QQ 宠物宿主反射发包桥接器
  * 基于 Android 手机 QQ 内部 PetPbDelegate / delegate.l 的 OIDB / SSO 发包通道
  */
-class QQPetDirectBridge(private val classLoader: ClassLoader) {
+class QQPetDirectBridge(private val classLoader: ClassLoader, private val context: Context? = null) {
+
+    constructor(classLoader: ClassLoader) : this(classLoader, null)
 
     data class SelectEvent(
         val eventName: String,
@@ -238,49 +243,119 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                text.contains("%E7%96%B2%E6%83%AB", ignoreCase = true)
        }
 
-       fun findDelegateClass(classLoader: ClassLoader): Pair<Class<*>?, Method?> {
+        fun getCandidateClassLoaders(primaryLoader: ClassLoader, context: Context?): List<ClassLoader> {
+            val loaders = mutableListOf<ClassLoader>()
+            loaders.add(primaryLoader)
+
+            context?.classLoader?.let { if (!loaders.contains(it)) loaders.add(it) }
+
             try {
-                val observerCls = Class.forName(OBSERVER_CLASS, true, classLoader)
-                val interfaceCls = Class.forName(INTERFACE_CLASS, true, classLoader)
+                Thread.currentThread().contextClassLoader?.let { if (!loaders.contains(it)) loaders.add(it) }
+            } catch (_: Throwable) {}
 
-                // 优先测试最可能的混淆类名，再遍历全部小写字母
-                val candidates = linkedSetOf('m', 'l', 'n', 'k', 'o', 'p', 'j', 'i')
-                for (ch in 'a'..'z') {
-                    candidates.add(ch)
-                }
+            try {
+                HookEntry.latestClassLoader?.let { if (!loaders.contains(it)) loaders.add(it) }
+            } catch (_: Throwable) {}
 
-                for (ch in candidates) {
-                    val className = "$DELEGATE_PKG$ch"
+            // MobileQQ.sMobileQQ
+            try {
+                val candidateLoaders = listOfNotNull(primaryLoader, context?.classLoader, HookEntry.latestClassLoader)
+                for (l in candidateLoaders) {
                     try {
-                        val cls = Class.forName(className, true, classLoader)
-                        if (interfaceCls.isAssignableFrom(cls) && !cls.isInterface) {
-                            var targetMethod: Method? = null
-                            for (m in cls.methods) {
-                                val params = m.parameterTypes
-                                if (params.size == 5 &&
-                                    params[0] == ByteArray::class.java &&
-                                    params[1] == String::class.java &&
-                                    (params[2] == Int::class.javaPrimitiveType || params[2] == Integer::class.java) &&
-                                    (params[3] == Int::class.javaPrimitiveType || params[3] == Integer::class.java) &&
-                                    (observerCls.isAssignableFrom(params[4]) || params[4] == Any::class.java)
-                                ) {
-                                    targetMethod = m
-                                    if (m.name == "c") break
-                                }
-                            }
-                            if (targetMethod != null) {
-                                resolvedDelegateClass = cls
-                                resolvedSendMethodName = targetMethod.name
-                                Log.i(TAG, "🎯 动态自适应命中 QQ 宠物原生发包代理类: $className, 发包方法: ${targetMethod.name}")
-                                return Pair(cls, targetMethod)
+                        val mobileQQCls = Class.forName("mqq.app.MobileQQ", false, l)
+                        val sMobileQQField = mobileQQCls.getDeclaredField("sMobileQQ").apply { isAccessible = true }
+                        val sMobileQQ = sMobileQQField.get(null)
+                        if (sMobileQQ != null) {
+                            val ml = sMobileQQ.javaClass.classLoader
+                            if (ml != null && !loaders.contains(ml)) loaders.add(ml)
+                            if (sMobileQQ is Context) {
+                                val cl = sMobileQQ.classLoader
+                                if (cl != null && !loaders.contains(cl)) loaders.add(cl)
                             }
                         }
+                        break
                     } catch (_: Throwable) {}
                 }
-            } catch (t: Throwable) {
-                Log.e(TAG, "探测 PetPbDelegate 接口或观察者失败: ${t.message}")
+            } catch (_: Throwable) {}
+
+            return loaders
+        }
+
+        fun tryLoadClass(name: String, loader: ClassLoader): Class<*>? {
+            return try {
+                Class.forName(name, false, loader)
+            } catch (_: Throwable) {
+                null
             }
-            return Pair(null, null)
+        }
+
+        fun buildCandidateClassNames(): List<String> {
+            val names = linkedSetOf<String>()
+            val commonSingle = listOf('m', 'l', 'n', 'k', 'o', 'p', 'j', 'i', 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a')
+            for (ch in commonSingle) names.add("$DELEGATE_PKG$ch")
+            for (ch in 'q'..'z') names.add("$DELEGATE_PKG$ch")
+            for (ch in 'A'..'Z') names.add("$DELEGATE_PKG$ch")
+            for (c1 in 'a'..'z') {
+                for (c2 in 'a'..'z') {
+                    names.add("$DELEGATE_PKG$c1$c2")
+                }
+            }
+            return names.toList()
+        }
+
+        fun findDelegateClass(classLoader: ClassLoader): Pair<Class<*>?, Method?> {
+            val (cls, method, _) = findDelegateClass(listOf(classLoader))
+            return Pair(cls, method)
+        }
+
+        fun findDelegateClass(loaders: List<ClassLoader>): Triple<Class<*>?, Method?, Class<*>?> {
+            val candidateNames = buildCandidateClassNames()
+
+            for (loader in loaders) {
+                var observerCls = tryLoadClass(OBSERVER_CLASS, loader)
+                val interfaceCls = tryLoadClass(INTERFACE_CLASS, loader)
+
+                if (observerCls == null) {
+                    for (otherLoader in loaders) {
+                        observerCls = tryLoadClass(OBSERVER_CLASS, otherLoader)
+                        if (observerCls != null) break
+                    }
+                }
+
+                for (className in candidateNames) {
+                    val cls = tryLoadClass(className, loader) ?: continue
+                    if (cls.isInterface) continue
+
+                    val isInterfaceMatch = interfaceCls != null && interfaceCls.isAssignableFrom(cls)
+
+                    var targetMethod: Method? = null
+                    val allMethods = cls.methods + cls.declaredMethods
+                    for (m in allMethods) {
+                        val params = m.parameterTypes
+                        if (params.size == 5 &&
+                            params[0] == ByteArray::class.java &&
+                            params[1] == String::class.java &&
+                            (params[2] == Int::class.javaPrimitiveType || params[2] == Integer::class.java) &&
+                            (params[3] == Int::class.javaPrimitiveType || params[3] == Integer::class.java) &&
+                            (observerCls == null || observerCls.isAssignableFrom(params[4]) || params[4].isInterface || params[4] == Any::class.java)
+                        ) {
+                            targetMethod = m
+                            m.isAccessible = true
+                            if (m.name == "c") break
+                        }
+                    }
+                    if (targetMethod != null && (isInterfaceMatch || interfaceCls == null)) {
+                        resolvedDelegateClass = cls
+                        resolvedSendMethodName = targetMethod.name
+                        if (observerCls == null) {
+                            observerCls = targetMethod.parameterTypes[4]
+                        }
+                        Log.i(TAG, "🎯 动态多源自适应命中 QQ 宠物原生发包代理类: $className, 发包方法: ${targetMethod.name}, Loader=$loader")
+                        return Triple(cls, targetMethod, observerCls)
+                    }
+                }
+            }
+            return Triple(null, null, null)
         }
     }
 
@@ -294,22 +369,57 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
 
     init {
         try {
-            observerClass = Class.forName(OBSERVER_CLASS, true, classLoader)
-            val (cls, method) = findDelegateClass(classLoader)
-            if (cls != null && method != null) {
-                val constructor: Constructor<*> = cls.getDeclaredConstructor().apply {
-                    isAccessible = true
+            val loaders = getCandidateClassLoaders(classLoader, context)
+            val (cls, method, obsCls) = findDelegateClass(loaders)
+            if (cls != null && method != null && obsCls != null) {
+                observerClass = obsCls
+                val inst = createDelegateInstance(cls, context)
+                if (inst != null) {
+                    delegateInstance = inst
+                    sendOidbMethod = method
+                    isReady = true
+                    Log.d(TAG, "✅ 成功反射挂载 QQ 宠物原生发包代理: ${cls.name}")
+                } else {
+                    Log.e(TAG, "❌ 实例化 QQ 宠物发包代理类失败: ${cls.name}")
                 }
-                delegateInstance = constructor.newInstance()
-                sendOidbMethod = method
-                isReady = true
-                Log.d(TAG, "✅ 成功反射挂载 QQ 宠物原生发包代理: ${cls.name}")
             } else {
-                Log.e(TAG, "❌ 未能动态发现实现 PetPbDelegate 的发包代理类")
+                Log.e(TAG, "❌ 未能在任何可用 ClassLoader 中动态发现实现 PetPbDelegate 的发包代理类")
             }
         } catch (t: Throwable) {
             Log.e(TAG, "反射 QQ 发包代理失败: ${t.message}", t)
         }
+    }
+
+    private fun createDelegateInstance(cls: Class<*>, context: Context?): Any? {
+        for (field in cls.declaredFields) {
+            if (Modifier.isStatic(field.modifiers) && cls.isAssignableFrom(field.type)) {
+                try {
+                    field.isAccessible = true
+                    val inst = field.get(null)
+                    if (inst != null) return inst
+                } catch (_: Throwable) {}
+            }
+        }
+        try {
+            val noArg = cls.getDeclaredConstructor().apply { isAccessible = true }
+            return noArg.newInstance()
+        } catch (_: Throwable) {}
+
+        for (cons in cls.declaredConstructors) {
+            try {
+                cons.isAccessible = true
+                val paramTypes = cons.parameterTypes
+                val args = arrayOfNulls<Any>(paramTypes.size)
+                for (i in paramTypes.indices) {
+                    if (context != null && Context::class.java.isAssignableFrom(paramTypes[i])) {
+                        args[i] = context
+                    }
+                }
+                val inst = cons.newInstance(*args)
+                if (inst != null) return inst
+            } catch (_: Throwable) {}
+        }
+        return null
     }
 
     /**
@@ -317,22 +427,25 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
      * 若未登录或过渡态返回 "0"，则统一返回空字符串 ""
      */
     fun getCurrentRuntimeUin(): String {
-        try {
-            val mobileQQClass = Class.forName("mqq.app.MobileQQ", true, classLoader)
-            val sMobileQQField = mobileQQClass.getField("sMobileQQ")
-            val sMobileQQ = sMobileQQField.get(null)
-            if (sMobileQQ != null) {
-                val peekMethod = sMobileQQ.javaClass.getMethod("peekAppRuntime")
-                val runtime = peekMethod.invoke(sMobileQQ)
-                if (runtime != null) {
-                    val uinMethod = runtime.javaClass.getMethod("getCurrentAccountUin")
-                    val uin = (uinMethod.invoke(runtime) as? String)?.trim()
-                    if (AccountSessionGuard.isValidUin(uin)) {
-                        return uin!!
+        val loaders = getCandidateClassLoaders(classLoader, context)
+        for (loader in loaders) {
+            try {
+                val mobileQQClass = Class.forName("mqq.app.MobileQQ", false, loader)
+                val sMobileQQField = mobileQQClass.getDeclaredField("sMobileQQ").apply { isAccessible = true }
+                val sMobileQQ = sMobileQQField.get(null)
+                if (sMobileQQ != null) {
+                    val peekMethod = sMobileQQ.javaClass.getMethod("peekAppRuntime")
+                    val runtime = peekMethod.invoke(sMobileQQ)
+                    if (runtime != null) {
+                        val uinMethod = runtime.javaClass.getMethod("getCurrentAccountUin")
+                        val uin = (uinMethod.invoke(runtime) as? String)?.trim()
+                        if (AccountSessionGuard.isValidUin(uin)) {
+                            return uin!!
+                        }
                     }
                 }
-            }
-        } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
+        }
         return ""
     }
 
@@ -376,17 +489,24 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         request: ByteArray,
         callback: (code: Int, data: ByteArray?, errorMsg: String?) -> Unit
     ) {
-        if (!isReady || delegateInstance == null || sendOidbMethod == null || observerClass == null) {
+        val obsCls = observerClass
+        val method = sendOidbMethod
+        val instance = delegateInstance
+        if (!isReady || instance == null || method == null || obsCls == null) {
             callback(-1, null, "发包代理未就绪")
             return
         }
         try {
             isInternalSending = true
+            val proxyLoader = obsCls.classLoader ?: classLoader
             val observer = Proxy.newProxyInstance(
-                classLoader,
-                arrayOf(observerClass)
-            ) { _, method, args ->
-                if (method.name == "onResult" && args != null && args.isNotEmpty()) {
+                proxyLoader,
+                arrayOf(obsCls)
+            ) { proxy, invokedMethod, args ->
+                if (invokedMethod.name == "toString") return@newProxyInstance "PetPbDelegateObserverProxy"
+                if (invokedMethod.name == "hashCode") return@newProxyInstance System.identityHashCode(proxy)
+                if (invokedMethod.name == "equals") return@newProxyInstance args?.getOrNull(0) === proxy
+                if (args != null && args.isNotEmpty()) {
                     val code = (args[0] as? Number)?.toInt() ?: -1
                     val data = args.getOrNull(1) as? ByteArray
                     val bundle = args.getOrNull(2) as? android.os.Bundle
@@ -395,8 +515,8 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                 }
                 null
             }
-            sendOidbMethod?.invoke(
-                delegateInstance,
+            method.invoke(
+                instance,
                 request,
                 commandName,
                 command,

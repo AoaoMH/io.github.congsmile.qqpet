@@ -3,6 +3,7 @@ package com.copilot.qqpet.engine
 import android.content.Context
 import android.content.Intent
 import com.copilot.qqpet.hook.HookLog as Log
+import com.copilot.qqpet.HookEntry
 import com.copilot.qqpet.protocol.QQPetDirectBridge
 import com.copilot.qqpet.ui.PreferencesHelper
 import kotlinx.coroutines.CoroutineScope
@@ -864,6 +865,18 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             return sleepSec * 1000L
         }
        if (!bridge.isReady) {
+            val candidate = HookEntry.globalBridge
+            if (candidate != null && candidate.isReady) {
+                this.bridge = candidate
+            } else {
+                HookEntry.reconnectBridgeIfAvailable(context)
+                val updated = HookEntry.globalBridge
+                if (updated != null && updated.isReady) {
+                    this.bridge = updated
+                }
+            }
+        }
+       if (!bridge.isReady) {
             currentStatusText = "发包代理连接中..."
             sendLog(context, "⏳ [挂起] QQ 内部发包代理尚未就绪，等待 10 秒...")
             return 10 * 1000L
@@ -1622,6 +1635,18 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
 
     fun runAction(context: Context, action: String) {
         CoroutineScope(Dispatchers.IO).launch {
+            if (!bridge.isReady) {
+                val candidate = HookEntry.globalBridge
+                if (candidate != null && candidate.isReady) {
+                    bridge = candidate
+                } else {
+                    HookEntry.reconnectBridgeIfAvailable(context)
+                    val updated = HookEntry.globalBridge
+                    if (updated != null && updated.isReady) {
+                        bridge = updated
+                    }
+                }
+            }
             when (action) {
                 "cycle" -> {
                     sendLog(context, "👉 [指令] 立即触发全流程策略调度循环...")
@@ -1826,6 +1851,18 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
     }
 
     suspend fun ensurePetId(context: Context, forceRefresh: Boolean = false): String? {
+        if (!bridge.isReady) {
+            val candidate = HookEntry.globalBridge
+            if (candidate != null && candidate.isReady) {
+                bridge = candidate
+            } else {
+                HookEntry.reconnectBridgeIfAvailable(context)
+                val updated = HookEntry.globalBridge
+                if (updated != null && updated.isReady) {
+                    bridge = updated
+                }
+            }
+        }
         if (!bridge.isReady) {
             sendLog(context, "❌ [错误] QQ 发包代理尚未就绪，请稍候重试")
             return null
@@ -3745,6 +3782,18 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             return
         }
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            if (!bridge.isReady) {
+                val candidate = HookEntry.globalBridge
+                if (candidate != null && candidate.isReady) {
+                    bridge = candidate
+                } else {
+                    HookEntry.reconnectBridgeIfAvailable(context)
+                    val updated = HookEntry.globalBridge
+                    if (updated != null && updated.isReady) {
+                        bridge = updated
+                    }
+                }
+            }
             try {
                 var petId = cachedPetId
                 if (petId.isNullOrEmpty()) {

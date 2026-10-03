@@ -53,6 +53,14 @@ class HookEntry : IXposedHookLoadPackage {
         var globalEngine: PetAdventureEngine? = null
         @Volatile
         var globalBridge: QQPetDirectBridge? = null
+        @Volatile
+        var latestClassLoader: ClassLoader? = null
+
+        fun reconnectBridgeIfAvailable(context: Context): Boolean {
+            val entry = instance ?: return false
+            val loader = latestClassLoader ?: context.classLoader ?: return false
+            return entry.initEngineAndReceiver(context, loader, "自愈重连")
+        }
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
@@ -72,13 +80,18 @@ class HookEntry : IXposedHookLoadPackage {
             return
         }
 
-        // 2. 仅拦截目标应用 QQ
+        // 2. 仅拦截目标应用 QQ 并且仅拦截 QQ 主进程，坚决杜绝 MSF/tool/peak 等子进程干扰发包和注册重复广播
         if (lpparam.packageName != TARGET_PACKAGE) {
+            return
+        }
+        if (lpparam.processName != TARGET_PACKAGE) {
+            HookLog.log(TAG, "跳过 QQ 非主进程: ${lpparam.processName}")
             return
         }
 
         instance = this
-        HookLog.log(TAG, "成功注入 QQ 进程: ${lpparam.processName}, PID=${android.os.Process.myPid()} (API 82 经典引擎)")
+        latestClassLoader = lpparam.classLoader
+        HookLog.log(TAG, "成功注入 QQ 主进程: ${lpparam.processName}, PID=${android.os.Process.myPid()} (API 82 经典引擎)")
         TinkerBlocker.install(lpparam.classLoader)
 
         // 挂钩 1: BaseApplicationImpl.onCreate (获取真实分包完成后的 ClassLoader)
@@ -91,6 +104,7 @@ class HookEntry : IXposedHookLoadPackage {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val app = param.thisObject as? Context ?: return
                         val appLoader = app.classLoader
+                        latestClassLoader = appLoader
                         HookLog.log(TAG, "BaseApplicationImpl.onCreate 触发, classLoader=$appLoader")
                         initEngineAndReceiver(app, appLoader, "BaseApplicationImpl.onCreate")
                         hookSplashActivity(appLoader)
@@ -111,6 +125,7 @@ class HookEntry : IXposedHookLoadPackage {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val context = param.thisObject as? Context ?: return
+                        latestClassLoader = context.classLoader
                         initEngineAndReceiver(context, context.classLoader, "MobileQQ.onCreate")
                         hookSplashActivity(context.classLoader)
                         QQSettingInjector.inject(context.classLoader)
@@ -129,10 +144,15 @@ class HookEntry : IXposedHookLoadPackage {
                 Bundle::class.java,
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        if (!QQSettingInjector.isHooked) {
-                            val activity = param.thisObject as? Activity
-                            if (activity != null && activity.packageName == TARGET_PACKAGE) {
+                        val activity = param.thisObject as? Activity ?: return
+                        if (activity.packageName == TARGET_PACKAGE) {
+                            latestClassLoader = activity.classLoader
+                            if (!QQSettingInjector.isHooked) {
                                 QQSettingInjector.inject(activity.classLoader)
+                            }
+                            if (globalBridge?.isReady != true) {
+                                val appContext = activity.applicationContext ?: activity
+                                initEngineAndReceiver(appContext, activity.classLoader, "Activity.onCreate[${activity.javaClass.simpleName}]")
                             }
                         }
                     }
@@ -158,7 +178,11 @@ class HookEntry : IXposedHookLoadPackage {
                         val activity = param.thisObject as? Activity ?: return
                         if (activity.packageName == TARGET_PACKAGE) {
                             val appContext = activity.applicationContext ?: activity
+                            latestClassLoader = activity.classLoader
                             QQSettingInjector.inject(activity.classLoader)
+                            if (globalBridge?.isReady != true) {
+                                initEngineAndReceiver(appContext, activity.classLoader, "SplashActivity.onResume")
+                            }
                             globalEngine?.verifyAndSyncAccountSession(appContext)
                             globalEngine?.startBackgroundLoop(appContext)
                         }
@@ -174,7 +198,12 @@ class HookEntry : IXposedHookLoadPackage {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val activity = param.thisObject as? Activity ?: return
                         if (activity.packageName == TARGET_PACKAGE) {
+                            val appContext = activity.applicationContext ?: activity
+                            latestClassLoader = activity.classLoader
                             QQSettingInjector.inject(activity.classLoader)
+                            if (globalBridge?.isReady != true) {
+                                initEngineAndReceiver(appContext, activity.classLoader, "SplashActivity.onCreate")
+                            }
                         }
                     }
                 }
@@ -184,7 +213,7 @@ class HookEntry : IXposedHookLoadPackage {
         } catch (_: Throwable) {}
     }
 
-    private fun initEngineAndReceiver(context: Context, classLoader: ClassLoader, from: String) {
+    fun initEngineAndReceiver(context: Context, classLoader: ClassLoader, from: String): Boolean {
         val appContext = context.applicationContext ?: context
 
         try {
@@ -194,7 +223,7 @@ class HookEntry : IXposedHookLoadPackage {
 
         if (globalEngine == null || globalBridge?.isReady != true) {
             try {
-                val bridge = QQPetDirectBridge(classLoader)
+                val bridge = QQPetDirectBridge(classLoader, appContext)
                 if (bridge.isReady) {
                     globalBridge = bridge
                     if (globalEngine == null) {
@@ -234,6 +263,7 @@ class HookEntry : IXposedHookLoadPackage {
         }
 
         checkLoginAndStartLoop(appContext, classLoader, from)
+        return globalBridge?.isReady == true
     }
 
     private fun checkLoginAndStartLoop(appContext: Context, classLoader: ClassLoader, from: String) {
@@ -288,6 +318,9 @@ class HookEntry : IXposedHookLoadPackage {
                 when (intent.action) {
                     ACTION_PING -> {
                         HookLog.log(TAG, "收到伴侣 Ping 探测广播，立即回传 Pong 确认激活！")
+                        if (globalBridge?.isReady != true) {
+                            initEngineAndReceiver(ctx, latestClassLoader ?: ctx.classLoader, "ACTION_PING")
+                        }
                         sendPong(ctx, "收到Ping")
                     }
                     ACTION_UPDATE_CONFIG -> {
@@ -410,6 +443,9 @@ class HookEntry : IXposedHookLoadPackage {
                     ACTION_TRIGGER_ACTION -> {
                         val action = intent.getStringExtra(PetAdventureEngine.EXTRA_ACTION) ?: "cycle"
                         HookLog.log(TAG, "收到动作指令: $action")
+                        if (globalBridge?.isReady != true) {
+                            initEngineAndReceiver(ctx, latestClassLoader ?: ctx.classLoader, "ACTION_TRIGGER_ACTION")
+                        }
                         if (action == "query_work_places" || action == "query_account_status") {
                             globalEngine?.preloadAndBroadcastAccountStatus(ctx)
                         } else {
@@ -419,6 +455,9 @@ class HookEntry : IXposedHookLoadPackage {
                     }
                     ACTION_TRIGGER_ADVENTURE -> {
                         HookLog.log(TAG, "收到一键测试冒险探索指令！")
+                        if (globalBridge?.isReady != true) {
+                            initEngineAndReceiver(ctx, latestClassLoader ?: ctx.classLoader, "ACTION_TRIGGER_ADVENTURE")
+                        }
                         globalEngine?.runAction(ctx, "adventure")
                         sendPong(ctx, "触发冒险")
                     }
