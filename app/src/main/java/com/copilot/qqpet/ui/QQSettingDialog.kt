@@ -1464,7 +1464,7 @@ object QQSettingDialog {
       }
       dailyCard.addView(activeVisitPanel)
       dailyCard.addView(createDivider())
-      addSimpleToggleRow(dailyCard, "自动领取好友福袋", "自动扫描好友小窝并拆取掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
+      addSimpleToggleRow(dailyCard, "自动领取福袋", "自动扫描并拆取自己小窝及好友掉落的金币福袋", PreferencesHelper.KEY_CLAIM_COINBAG, true, false)
       addSimpleToggleRow(dailyCard, "疲惫时自动转冒险", "检测到疲惫收益减少时，取消打工和学习转去冒险直至恢复", PreferencesHelper.KEY_FATIGUE_TO_ADVENTURE, true, false)
 
       addSimpleToggleRow(dailyCard, "自动对决挑战 (PK)", "每日自动与好友或访客PK 10场，三维筛查稳赢挑战，冷却1~3分钟", PreferencesHelper.KEY_AUTO_PK, false, false)
@@ -1525,8 +1525,9 @@ object QQSettingDialog {
        dailyCard.addView(createDivider())
       addSimpleToggleRow(dailyCard, "夜间防风控静默", "凌晨01:30~06:30暂停唤醒与轮转，完全符合人类作息时序", PreferencesHelper.KEY_NIGHT_SLEEP_MODE, true, false)
       addSimpleToggleRow(dailyCard, "熄屏防风控静默", "手机熄屏锁屏时暂停主动发包调度，亮屏恢复，避免黑屏发包特征", PreferencesHelper.KEY_SCREEN_OFF_SILENT, true, false)
-      addSimpleToggleRow(dailyCard, "QQ设置页纯净隐身", "仅在QQ内部隐藏本弹窗卡片，可通过伴侣独立App管理", PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false, false)
-       addSimpleToggleRow(dailyCard, "调试详细日志", "默认静默，开启后向 XposedBridge 打印详细发包日志", PreferencesHelper.KEY_DEBUG_LOG, false, true)
+       addSimpleToggleRow(dailyCard, "调试详细日志", "默认静默，开启后向 XposedBridge 打印详细发包日志", PreferencesHelper.KEY_DEBUG_LOG, false, false)
+       dailyCard.addView(createDivider())
+       addSimpleToggleRow(dailyCard, "禁止 Tinker 热补丁", "默认关闭；开启后阻断 QQ 静默热更新，防止混淆变更导致模块失效，但会跳过官方 Bug 修复", PreferencesHelper.KEY_DISABLE_TINKER_PATCH, false, true)
        contentLayout.addView(dailyCard)
 
         // ================= 5. 分组三：手动即时指令 (iOS Action List 纯文字) =================
@@ -1682,9 +1683,9 @@ object QQSettingDialog {
         }
         addActionItem(
             card = actionCard,
-            title = "立即领取好友福袋",
-            confirmTitle = "立即领取好友福袋？",
-            confirmMessage = "将立即扫描全部好友小窝，发现掉落福袋时自动拆袋领取金币奖励。",
+            title = "立即领取金币福袋",
+            confirmTitle = "立即领取金币福袋？",
+            confirmMessage = "将立即扫描自己小窝及全部好友小窝，发现掉落福袋时自动拆袋领取金币奖励。",
             confirmBtnText = "立即拆福袋",
             colorHex = "#007AFF",
             isLast = false
@@ -3084,6 +3085,7 @@ object QQSettingDialog {
       val activeVisitFriends = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_FRIENDS, true)
       val activeVisitStrangers = prefs.getBoolean(PreferencesHelper.KEY_ACTIVE_VISIT_STRANGERS, true)
       val activeVisitDailyLimit = prefs.getInt(PreferencesHelper.KEY_ACTIVE_VISIT_DAILY_LIMIT, 20)
+      val disableTinker = prefs.getBoolean(PreferencesHelper.KEY_DISABLE_TINKER_PATCH, false)
 
       HookEntry.globalEngine?.updateConfig(study, work, care, adv, settle, likeBack, claimCoinBag, fatigueToAdv, studyMode, workMode, schoolStage, courseSubject, courseDuration, workType, workDuration, careEnergy, careClean, humanLikeSleep, nightSleep, screenOffSilent, hideQQSetting, debugLog, hireFriend, hireUinsCsv, friendCareEnabled, friendCareEnergy, friendCareClean, autoPk, pkBlacklistUinsCsv, hiredRecall, activeVisit, activeVisitFriends, activeVisitStrangers, activeVisitDailyLimit)
      if (engine != null && engine !== HookEntry.globalEngine) {
@@ -3125,6 +3127,7 @@ object QQSettingDialog {
           putExtra("extra_active_visit_friends", activeVisitFriends)
           putExtra("extra_active_visit_strangers", activeVisitStrangers)
           putExtra("extra_active_visit_daily_limit", activeVisitDailyLimit)
+          putExtra("extra_disable_tinker_patch", disableTinker)
      }
      context.sendBroadcast(intent)
    }

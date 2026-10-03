@@ -9,8 +9,6 @@ import com.copilot.qqpet.HookEntry
 import com.copilot.qqpet.engine.StealthScheduler
 import com.copilot.qqpet.ui.PreferencesHelper
 import com.copilot.qqpet.ui.QQSettingDialog
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Method
@@ -20,16 +18,28 @@ object QQSettingInjector {
 
     private const val TAG = "QQSettingInjector"
     @Volatile
-    private var isHooked = false
+    var isHooked = false
+        private set
+
+    fun resetHookState() {
+        isHooked = false
+    }
 
     fun inject(classLoader: ClassLoader) {
         if (isHooked) return
 
-        val providerClassNames = listOf(
+        val providerClassNames = mutableListOf(
             "com.tencent.mobileqq.setting.main.b",
             "com.tencent.mobileqq.setting.main.MainSettingConfigProvider",
             "com.tencent.mobileqq.setting.main.NewSettingConfigProvider"
         )
+        // 自动探测拓展：防止 QQ 小版本 Proguard 混淆字母漂移 (如 a..z)
+        for (ch in 'a'..'z') {
+            val name = "com.tencent.mobileqq.setting.main.$ch"
+            if (!providerClassNames.contains(name)) {
+                providerClassNames.add(name)
+            }
+        }
 
         for (className in providerClassNames) {
             val providerCls = try {
@@ -44,30 +54,49 @@ object QQSettingInjector {
                         List::class.java.isAssignableFrom(m.returnType)
             } ?: continue
 
-            XposedBridge.hookMethod(getListMethod, object : XC_MethodHook() {
-                @Suppress("UNCHECKED_CAST")
-                @SuppressLint("DiscouragedApi")
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    val ctx = param.args[0] as? Context ?: return
-                    val groupList = param.result as? MutableList<Any> ?: return
-                    if (groupList.isEmpty()) return
-
-                    val prefs = ctx.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
-                    val hideEntry = prefs.getBoolean(PreferencesHelper.KEY_HIDE_QQ_SETTING_ENTRY, false)
-                    if (!StealthScheduler.shouldInjectSettingCard(hideEntry)) {
-                        return
+            val hookModule = HookEntry.instance ?: break
+            try {
+                hookModule.hook(getListMethod).intercept { chain ->
+                    val proceedResult = chain.proceed()
+                    val ctx = chain.getArg(0) as? Context
+                    @Suppress("UNCHECKED_CAST")
+                    val groupList = proceedResult as? MutableList<Any>
+                    if (ctx == null || groupList == null || groupList.isEmpty()) {
+                        return@intercept proceedResult
                     }
 
-                    try {
-                        // 使用通用条目处理器 com.tencent.mobileqq.setting.processor.i
-                        val itemCls = Class.forName("com.tencent.mobileqq.setting.processor.i", false, classLoader)
-                        HookLog.log(TAG, "目标处理器 com.tencent.mobileqq.setting.processor.i:")
-                        HookLog.log(TAG, "  构造函数: ${itemCls.constructors.map { c -> c.parameterTypes.map { it.simpleName } }}")
-                        HookLog.log(TAG, "  字段: ${itemCls.declaredFields.map { "${it.name}:${it.type.simpleName}" }}")
-                        HookLog.log(TAG, "  方法: ${itemCls.declaredMethods.map { "${it.name}(${it.parameterTypes.map { p -> p.simpleName }})->${it.returnType.simpleName}" }}")
+                    val prefs = ctx.getSharedPreferences("qqpet_inproc_prefs", Context.MODE_PRIVATE)
+                    // QQ 设置页入口保持永久常驻
 
+                    try {
                         val sampleGroup = groupList.first()
                         val groupCls = sampleGroup.javaClass
+
+                        // 使用通用条目处理器，支持多包名与动态自省保底
+                        val itemCandidateNames = listOf(
+                            "com.tencent.mobileqq.setting.processor.i",
+                            "com.tencent.mobileqq.setting.main.processor.i"
+                        )
+                        var itemCls: Class<*>? = null
+                        for (cName in itemCandidateNames) {
+                            try {
+                                itemCls = Class.forName(cName, false, classLoader)
+                                break
+                            } catch (_: Throwable) {}
+                        }
+                        if (itemCls == null) {
+                            for (f in groupCls.declaredFields) {
+                                f.isAccessible = true
+                                val obj = f.get(sampleGroup)
+                                if (obj is List<*> && obj.isNotEmpty()) {
+                                    itemCls = obj.firstOrNull()?.javaClass
+                                    if (itemCls != null) break
+                                }
+                            }
+                        }
+                        if (itemCls == null) return@intercept proceedResult
+
+                        HookLog.log(TAG, "目标处理器 ${itemCls.name}:")
 
                         // 查找通用图标
                         var iconRes = ctx.resources.getIdentifier("qui_tuning", "drawable", ctx.packageName)
@@ -75,7 +104,7 @@ object QQSettingInjector {
                             iconRes = ctx.resources.getIdentifier("qq_setting_me_icon", "drawable", ctx.packageName)
                         }
 
-                        // 尝试实例化 com.tencent.mobileqq.setting.processor.i
+                        // 尝试实例化条目处理器
                         var newItem: Any? = null
                         for (c in itemCls.constructors) {
                             c.isAccessible = true
@@ -94,25 +123,25 @@ object QQSettingInjector {
                                     }
                                 }
                                 newItem = c.newInstance(*args)
-                                HookLog.log(TAG, "成功创建 processor.i 实例 (args count=${pTypes.size})！")
+                                HookLog.log(TAG, "成功创建 processor 实例 (args count=${pTypes.size})！")
                                 break
                             } catch (e: Throwable) {
                                 HookLog.log(TAG, "构造失败: ${e.message}")
                             }
                         }
 
-                        if (newItem == null) return
+                        if (newItem == null) return@intercept proceedResult
 
-                        // 给标题字段 g 赋值 "Q宠后台伴侣"
+                        // 给标题字段赋值 "Q宠后台伴侣"
                         for (f in itemCls.declaredFields) {
                             f.isAccessible = true
-                            if (f.name == "g" && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
+                            if ((f.name == "g" || f.name == "title") && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
                                 f.set(newItem, "Q宠后台伴侣")
-                                HookLog.log(TAG, "赋值字段 g = Q宠后台伴侣")
+                                HookLog.log(TAG, "赋值字段 ${f.name} = Q宠后台伴侣")
                             }
-                            if (f.name == "h" && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
+                            if ((f.name == "h" || f.name == "subTitle") && (CharSequence::class.java.isAssignableFrom(f.type) || f.type == String::class.java)) {
                                 f.set(newItem, "纯后台全自动调度")
-                                HookLog.log(TAG, "赋值字段 h = 纯后台全自动调度")
+                                HookLog.log(TAG, "赋值字段 ${f.name} = 纯后台全自动调度")
                             }
                         }
 
@@ -160,8 +189,12 @@ object QQSettingInjector {
                                     }
                                     val newGroup = c.newInstance(*args)
                                     // 插入在第 2 个位置（紧随账号安全等关键项之后）
-                                    groupList.add(2, newGroup)
-                                    HookLog.log(TAG, "🎯 完美插入「Q宠后台伴侣」专属卡片！")
+                                    if (groupList.size >= 2) {
+                                        groupList.add(2, newGroup)
+                                    } else {
+                                        groupList.add(newGroup)
+                                    }
+                                    HookLog.log(TAG, "🎯 完美插入「Q宠后台伴侣」专属卡片 (LibXposed 102)！")
                                     break
                                 }
                             } catch (_: Throwable) {}
@@ -170,11 +203,14 @@ object QQSettingInjector {
                     } catch (t: Throwable) {
                         HookLog.log(TAG, "挂载异常: ${Log.getStackTraceString(t)}")
                     }
+                    return@intercept proceedResult
                 }
-            })
-
-            isHooked = true
-            break
+                isHooked = true
+                HookLog.log(TAG, "成功挂钩设置项提供者: $className (LibXposed 102)")
+                break
+            } catch (t: Throwable) {
+                HookLog.log(TAG, "挂钩 $className 异常: ${t.message}")
+            }
         }
     }
 

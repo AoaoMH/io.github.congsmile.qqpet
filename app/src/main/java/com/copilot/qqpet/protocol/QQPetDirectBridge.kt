@@ -86,7 +86,8 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
        val friendNick: String,
        val friendPetId: String,
        val petNick: String,
-       val coinbagId: String
+       val coinbagId: String,
+       val isSelf: Boolean = false
    )
 
    data class SnatchCoinBagResult(
@@ -189,6 +190,8 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
         @Volatile
         var lastSelectEventsFatigueTip: String? = null
             private set
+        @Volatile
+        var cachedOwnCoinBagId: String? = null
 
        fun clearStaticRuntimeCache() {
            cachedPetAttributes = null
@@ -196,6 +199,7 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
            lastFatigueTip = null
            lastSelectEventsFatigued = false
            lastSelectEventsFatigueTip = null
+           cachedOwnCoinBagId = null
        }
 
         private val ENERGY_COST_REGEX = Regex("""体力\d*\(当前(\d+)\)""")
@@ -416,6 +420,13 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
             if (code == 0 && data != null) {
                 val petBytes = ProtoWire.firstBytes(data, 1)
                 petId = ProtoWire.firstString(petBytes, 101)
+                val bagFromPet = ProtoWire.firstString(ProtoWire.firstBytes(petBytes, 21), 1)?.trim().orEmpty()
+                val bagFromRoot = ProtoWire.firstString(ProtoWire.firstBytes(data, 21), 1)?.trim().orEmpty()
+                val ownBag = bagFromPet.ifEmpty { bagFromRoot }
+                if (ownBag.isNotEmpty()) {
+                    cachedOwnCoinBagId = ownBag
+                    Log.i(TAG, "🧧 [0x95e1_0] 在本人主宠资料中捕获到地面福袋: $ownBag")
+                }
             }
             callback(code, petId, data)
         }
@@ -928,6 +939,13 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                    )
                    if (isSelf) {
                        cachedPetAttributes = attrs
+                       val bagFromRoot = ProtoWire.firstString(ProtoWire.firstBytes(data, 21), 1)?.trim().orEmpty()
+                       val bagFromDisplay = ProtoWire.firstString(ProtoWire.firstBytes(displayBytes, 21), 1)?.trim().orEmpty()
+                       val ownBag = bagFromRoot.ifEmpty { bagFromDisplay }
+                       if (ownBag.isNotEmpty()) {
+                           cachedOwnCoinBagId = ownBag
+                           Log.i(TAG, "🧧 [0x96f2_1] 在自家小窝场景中实时捕获到地面福袋: $ownBag")
+                       }
                    }
                    Log.i(TAG, "📊 [0x96f2_1] 实时三围 (petId=$petId, isSelf=$isSelf): 体力=${energyCur.toInt()}/${attrs.maxEnergy.toInt()}, 清洁=${cleanCur.toInt()}/${attrs.maxClean.toInt()}, 心情=${moodCur.toInt()}")
                    callback(0, attrs)
@@ -1410,7 +1428,29 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                 val bagList = mutableListOf<FriendCoinBagInfo>()
                 val allFriendNodes = mutableListOf<ByteArray>()
                 allFriendNodes.addAll(ProtoWire.allBytes(data, 1))
-                ProtoWire.firstBytes(data, 6)?.let { allFriendNodes.add(it) }
+                val selfNodeBytes = ProtoWire.firstBytes(data, 6)
+                if (selfNodeBytes != null) {
+                    allFriendNodes.add(selfNodeBytes)
+                }
+
+                val currentOwnUinStr = getCurrentRuntimeUin()
+
+                // 检查回包根节点是否直接挂载了自家小窝福袋 (Tag 21)
+                val rootCoinBagBytes = ProtoWire.firstBytes(data, 21)
+                val rootCoinBagId = ProtoWire.firstString(rootCoinBagBytes, 1)?.trim().orEmpty()
+                if (rootCoinBagId.isNotEmpty()) {
+                    cachedOwnCoinBagId = rootCoinBagId
+                    bagList.add(
+                        FriendCoinBagInfo(
+                            friendUin = currentOwnUinStr.toLongOrNull() ?: 0L,
+                            friendNick = "自己小窝",
+                            friendPetId = "",
+                            petNick = "我的小窝",
+                            coinbagId = rootCoinBagId,
+                            isSelf = true
+                        )
+                    )
+                }
 
                 for (nodeBytes in allFriendNodes) {
                     val profileBytes = ProtoWire.firstBytes(nodeBytes, 1)
@@ -1426,13 +1466,20 @@ class QQPetDirectBridge(private val classLoader: ClassLoader) {
                     val coinBagBytes = ProtoWire.firstBytes(nodeBytes, 21)
                     val coinbagId = ProtoWire.firstString(coinBagBytes, 1)?.trim() ?: ""
                     if (coinbagId.isNotEmpty()) {
+                        val isSelf = (currentOwnUinStr.isNotEmpty() && friendUin.toString() == currentOwnUinStr) ||
+                            (selfNodeBytes != null && nodeBytes.contentEquals(selfNodeBytes)) ||
+                            (friendUin == 0L && friendNick.isEmpty())
+                        if (isSelf) {
+                            cachedOwnCoinBagId = coinbagId
+                        }
                         bagList.add(
                             FriendCoinBagInfo(
                                 friendUin = friendUin,
-                                friendNick = friendNick,
+                                friendNick = if (isSelf) "自己小窝" else friendNick,
                                 friendPetId = friendPetId,
                                 petNick = petNick,
-                                coinbagId = coinbagId
+                                coinbagId = coinbagId,
+                                isSelf = isSelf
                             )
                         )
                     }

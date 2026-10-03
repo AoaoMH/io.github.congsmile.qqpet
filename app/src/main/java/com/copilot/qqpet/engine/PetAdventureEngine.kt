@@ -811,6 +811,11 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
         sendLog(context, "🟢 [QQ内核已就绪] 宿主发包代理与全功能自动化引擎已全部连通！")
     }
 
+    fun stopBackgroundLoop() {
+        isLoopRunning = false
+        WakeLockHelper.wakeUpImmediately()
+    }
+
     fun startBackgroundLoop(context: Context) {
         if (isLoopRunning) return
         isLoopRunning = true
@@ -2959,11 +2964,43 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
     private suspend fun executeAutoClaimCoinBag(context: Context, ownPetId: String, isManual: Boolean) {
         try {
             syncTodayClaimedBags(context)
+
+            // 1. 优先拆领自己小窝地面的福袋（独立计数，不受好友每日上限 135098 约束）
+            val selfBagId = QQPetDirectBridge.cachedOwnCoinBagId?.trim().orEmpty()
+            if (selfBagId.isNotEmpty() && (!todayClaimedBagIds.contains(selfBagId) || isManual)) {
+                if (isManual) {
+                    sendLog(context, "🧧 [自家福袋] 检测到自己小窝地面掉落福袋 ($selfBagId)，正在自动拾取拆领...")
+                }
+                val res = snatchCoinBagAwait(ownPetId, selfBagId)
+                when (res.code) {
+                    0 -> {
+                        markCoinBagHandledToday(context, selfBagId)
+                        QQPetDirectBridge.cachedOwnCoinBagId = null
+                        if (res.gotGold > 0L) {
+                            sendLog(context, "🎉 [自家福袋] 成功拆开自己小窝地面的金币福袋，斩获 +${res.gotGold} 金币！")
+                        } else {
+                            sendLog(context, "ℹ️ [自家福袋] 自己小窝地面的福袋已领取或已被开启 (status=${res.status})")
+                        }
+                    }
+                    135091, 135092, 135096 -> {
+                        markCoinBagHandledToday(context, selfBagId)
+                        QQPetDirectBridge.cachedOwnCoinBagId = null
+                        sendLog(context, "ℹ️ [自家福袋] 自己小窝地面的福袋已被领空或过期失效 (code=${res.code})")
+                    }
+                    else -> {
+                        if (isManual) {
+                            sendLog(context, "ℹ️ [自家福袋] 拆领自己小窝福袋回包: code=${res.code} ${res.errorMsg ?: ""}")
+                        }
+                    }
+                }
+                randomHumanDelay(1500L, 2500L)
+            }
+
             if (!isManual && coinBagDailyLimitReached) {
                 return
             }
             if (isManual) {
-                sendLog(context, "🧧 [好友福袋] 正在扫描好友小窝列表，搜寻可领取的福袋...")
+                sendLog(context, "🧧 [福袋巡检] 正在扫描小窝与好友列表，搜寻可领取的金币福袋...")
             }
 
             val discoveredBags = LinkedHashMap<String, QQPetDirectBridge.FriendCoinBagInfo>()
@@ -2998,7 +3035,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
 
            if (firstErrorCode != 0 && pageCount == 1) {
                 if (isManual) {
-                    sendLog(context, "❌ [好友福袋] 拉取好友列表失败: code=$firstErrorCode ${firstErrorMsg ?: ""}")
+                    sendLog(context, "❌ [福袋巡检] 拉取好友列表失败: code=$firstErrorCode ${firstErrorMsg ?: ""}")
                 }
                 return
             }
@@ -3006,7 +3043,7 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             val allBags = discoveredBags.values.toList()
             if (allBags.isEmpty()) {
                 if (isManual) {
-                    sendLog(context, "ℹ️ [好友福袋] 已扫描 $totalScannedFriends 位好友小窝，当前暂无好友掉落福袋")
+                    sendLog(context, "ℹ️ [福袋巡检] 已扫描 $totalScannedFriends 位好友小窝，当前暂无掉落福袋")
                 }
                 return
             }
@@ -3014,7 +3051,9 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
             val pendingBags = if (isManual) {
                 allBags
             } else {
-                allBags.filter { !todayClaimedBagIds.contains(it.coinbagId) }.take(5)
+                val (selfBags, friendBags) = allBags.filter { !todayClaimedBagIds.contains(it.coinbagId) }
+                    .partition { it.isSelf || (currentActiveUin.isNotEmpty() && it.friendUin.toString() == currentActiveUin) }
+                selfBags + friendBags.take(5)
             }
 
             if (pendingBags.isEmpty()) {
@@ -3023,48 +3062,60 @@ class PetAdventureEngine(private var bridge: QQPetDirectBridge) {
 
             sendLog(
                 context,
-                "🧧 [好友福袋] 扫描 $totalScannedFriends 位好友，发现 ${pendingBags.size} 个福袋：" +
+                "🧧 [福袋巡检] 扫描发现 ${pendingBags.size} 个可领福袋：" +
                     pendingBags.joinToString { "${it.friendNick.ifEmpty { it.friendUin.toString() }}(${it.petNick})" }
             )
 
             var claimedCount = 0
             var totalGold = 0L
             for (bag in pendingBags) {
-                val friendName = bag.friendNick.ifEmpty { bag.friendUin.toString() }
+                val isSelfBag = bag.isSelf || (currentActiveUin.isNotEmpty() && bag.friendUin.toString() == currentActiveUin)
+                val bagOwnerLabel = if (isSelfBag) "自己小窝" else bag.friendNick.ifEmpty { bag.friendUin.toString() }
+                val tagPrefix = if (isSelfBag) "自家福袋" else "好友福袋"
                 val res = snatchCoinBagAwait(ownPetId, bag.coinbagId)
                 when (res.code) {
                     0 -> {
                         markCoinBagHandledToday(context, bag.coinbagId)
+                        if (isSelfBag) {
+                            QQPetDirectBridge.cachedOwnCoinBagId = null
+                        }
                         if (res.gotGold > 0L) {
                             claimedCount++
                             totalGold += res.gotGold
-                            sendLog(context, "🎉 [福袋入账] 成功拆开好友 $friendName 的福袋，获得 +${res.gotGold} 金币！")
+                            sendLog(context, "🎉 [$tagPrefix] 成功拆开 $bagOwnerLabel 的福袋，获得 +${res.gotGold} 金币！")
                         } else {
-                            sendLog(context, "ℹ️ [好友福袋] 好友 $friendName 的福袋已拆过或已被领完 (status=${res.status})")
+                            sendLog(context, "ℹ️ [$tagPrefix] $bagOwnerLabel 的福袋已拆过或已被领完 (status=${res.status})")
                         }
                     }
                     135098 -> {
-                        markCoinBagHandledToday(context, bag.coinbagId, limitReached = true)
-                        sendLog(context, "ℹ️ [好友福袋] 今日领取好友福袋次数已达官方上限 (code=135098)")
-                        break
+                        if (!isSelfBag) {
+                            markCoinBagHandledToday(context, bag.coinbagId, limitReached = true)
+                            sendLog(context, "ℹ️ [好友福袋] 今日领取好友福袋次数已达官方上限 (code=135098)")
+                            break
+                        } else {
+                            markCoinBagHandledToday(context, bag.coinbagId)
+                        }
                     }
                     135091, 135092, 135096 -> {
                         markCoinBagHandledToday(context, bag.coinbagId)
-                        sendLog(context, "ℹ️ [好友福袋] 好友 $friendName 的福袋已被主人收走或已领空 (code=${res.code})")
+                        if (isSelfBag) {
+                            QQPetDirectBridge.cachedOwnCoinBagId = null
+                        }
+                        sendLog(context, "ℹ️ [$tagPrefix] $bagOwnerLabel 的福袋已被收走或已领空 (code=${res.code})")
                     }
                    else -> {
                        markCoinBagHandledToday(context, bag.coinbagId)
-                       sendLog(context, "ℹ️ [好友福袋] 拆取 $friendName 福袋回包: code=${res.code} ${res.errorMsg ?: ""}")
+                       sendLog(context, "ℹ️ [$tagPrefix] 拆取 $bagOwnerLabel 福袋回包: code=${res.code} ${res.errorMsg ?: ""}")
                    }
                }
                 randomHumanDelay(2200L, 3800L)
            }
 
            if (claimedCount > 0) {
-                sendLog(context, "🧧 [福袋汇总] 本轮成功拆开 $claimedCount 个好友福袋，共计斩获 +$totalGold 金币！")
+                sendLog(context, "🧧 [福袋汇总] 本轮成功拆开 $claimedCount 个福袋，共计斩获 +$totalGold 金币！")
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "自动领取好友福袋异常: ${t.message}")
+            Log.w(TAG, "自动领取福袋异常: ${t.message}")
         }
     }
 

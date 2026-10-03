@@ -19,7 +19,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.QQPetCopilot">
 
-        <!-- Xposed / LSPosed 核心元数据 -->
+        <!-- Xposed / LSPosed 核心元数据 (升级为 Modern API 102) -->
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
@@ -28,7 +28,7 @@
             android:value="@string/xposed_description" />
         <meta-data
             android:name="xposedminversion"
-            android:value="82" />
+            android:value="102" />
         <!-- LSPosed 推荐勾选的作用域列表 -->
         <meta-data
             android:name="xposedscope"

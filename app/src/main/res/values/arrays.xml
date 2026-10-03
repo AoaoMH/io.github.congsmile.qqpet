@@ -3,5 +3,6 @@
     <!-- LSPosed 识别此数组并默认推荐勾选以下目标 App -->
     <string-array name="xposed_scope">
         <item>com.tencent.mobileqq</item>
+        <item>io.github.congsmile.qqpet</item>
     </string-array>
 </resources>
